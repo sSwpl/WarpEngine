@@ -1,0 +1,12 @@
+# OS / Helper files
+.DS_Store
+.vscode/
+
+# Build directories
+build/
+bin/
+out/
+
+# External dependencies
+external/wgpu/
+external/glfw/
