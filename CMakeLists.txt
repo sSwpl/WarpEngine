@@ -68,12 +68,26 @@ if(WGPU_LIB)
     target_link_libraries(WarpEngine PUBLIC ${WGPU_LIB})
     target_include_directories(WarpEngine PUBLIC "${WGPU_ROOT}/include")
 
-    # Copy shared library to output directory so the app can find it at runtime
-    add_custom_command(TARGET WarpEngine POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${WGPU_LIB}
-        $<TARGET_FILE_DIR:WarpEngine>
-    )
+    # Copy the DLL to output directory so the app can find it at runtime
+    if(WIN32)
+        add_custom_command(TARGET WarpEngine POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${WGPU_ROOT}/lib/wgpu_native.dll"
+            $<TARGET_FILE_DIR:WarpEngine>
+        )
+    elseif(APPLE)
+        add_custom_command(TARGET WarpEngine POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${WGPU_ROOT}/lib/libwgpu_native.dylib"
+            $<TARGET_FILE_DIR:WarpEngine>
+        )
+    else()
+        add_custom_command(TARGET WarpEngine POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${WGPU_ROOT}/lib/libwgpu_native.so"
+            $<TARGET_FILE_DIR:WarpEngine>
+        )
+    endif()
 endif()
 
 # macOS specific frameworks (often needed for windowing/graphics)
