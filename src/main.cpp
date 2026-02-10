@@ -7,6 +7,16 @@
 #include "wgpu_surface.h"
 
 // ============================================================
+//  Struktury danych
+// ============================================================
+
+// Uniform buffer przesyłany do GPU — pozycja gracza (vec2f + padding do 16B)
+struct PlayerUniforms {
+  float position[2]; // x, y
+  float _pad[2];     // wyrównanie do 16 bajtów (std140)
+};
+
+// ============================================================
 //  Callbacks
 // ============================================================
 
@@ -91,6 +101,12 @@ const char *backendTypeName(WGPUBackendType type) {
 // ============================================================
 
 const char *shaderSource = R"(
+struct PlayerUniforms {
+    position: vec2f,
+};
+
+@group(0) @binding(0) var<uniform> player: PlayerUniforms;
+
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) color: vec3f,
@@ -105,7 +121,7 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
     );
 
     var out: VertexOutput;
-    out.position = vec4f(pos[vertexIndex], 0.0, 1.0);
+    out.position = vec4f(pos[vertexIndex] + player.position, 0.0, 1.0);
     out.color = vec3f(1.0, 0.0, 0.0); // czerwony
     return out;
 }
@@ -121,7 +137,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 // ============================================================
 
 WGPURenderPipeline createPipeline(WGPUDevice device,
-                                  WGPUTextureFormat surfaceFormat) {
+                                  WGPUTextureFormat surfaceFormat,
+                                  WGPUBindGroupLayout bindGroupLayout) {
   // 1. Shader module z kodu WGSL
   WGPUShaderModuleWGSLDescriptor wgslDesc = {};
   wgslDesc.chain.next = nullptr;
@@ -141,7 +158,17 @@ WGPURenderPipeline createPipeline(WGPUDevice device,
     return nullptr;
   }
 
-  // 2. Color target state (format musi pasować do surface)
+  // 2. Tworzenie explicit pipeline layout z bind group layout
+  WGPUPipelineLayoutDescriptor layoutDesc = {};
+  layoutDesc.nextInChain = nullptr;
+  layoutDesc.label = "Pipeline Layout";
+  layoutDesc.bindGroupLayoutCount = 1;
+  layoutDesc.bindGroupLayouts = &bindGroupLayout;
+
+  WGPUPipelineLayout pipelineLayout =
+      wgpuDeviceCreatePipelineLayout(device, &layoutDesc);
+
+  // 3. Color target state (format musi pasować do surface)
   WGPUBlendState blendState = {};
   blendState.color.srcFactor = WGPUBlendFactor_SrcAlpha;
   blendState.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
@@ -156,7 +183,7 @@ WGPURenderPipeline createPipeline(WGPUDevice device,
   colorTarget.blend = &blendState;
   colorTarget.writeMask = WGPUColorWriteMask_All;
 
-  // 3. Fragment state
+  // 4. Fragment state
   WGPUFragmentState fragmentState = {};
   fragmentState.nextInChain = nullptr;
   fragmentState.module = shaderModule;
@@ -166,11 +193,11 @@ WGPURenderPipeline createPipeline(WGPUDevice device,
   fragmentState.targetCount = 1;
   fragmentState.targets = &colorTarget;
 
-  // 4. Pipeline descriptor
+  // 5. Pipeline descriptor
   WGPURenderPipelineDescriptor pipelineDesc = {};
   pipelineDesc.nextInChain = nullptr;
   pipelineDesc.label = "Triangle Pipeline";
-  pipelineDesc.layout = nullptr; // auto layout
+  pipelineDesc.layout = pipelineLayout;
 
   // Vertex state (brak buforów — pozycje hardkodowane w shaderze)
   pipelineDesc.vertex.nextInChain = nullptr;
@@ -203,8 +230,10 @@ WGPURenderPipeline createPipeline(WGPUDevice device,
   WGPURenderPipeline pipeline =
       wgpuDeviceCreateRenderPipeline(device, &pipelineDesc);
 
-  // Shader module już nie jest potrzebny po utworzeniu pipeline'u
+  // Shader module i pipeline layout już nie są potrzebne po utworzeniu
+  // pipeline'u
   wgpuShaderModuleRelease(shaderModule);
+  wgpuPipelineLayoutRelease(pipelineLayout);
 
   if (!pipeline) {
     std::cerr << "Failed to create render pipeline!" << std::endl;
@@ -355,10 +384,69 @@ int main() {
   wgpuSurfaceConfigure(surface, &surfConfig);
   std::cout << "Surface configured (800x600, BGRA8Unorm, Fifo)." << std::endl;
 
-  // ── 9. Tworzenie Render Pipeline ─────────────────────────
+  // ── 9. Tworzenie Uniform Buffer i Bind Group ─────────────
+  PlayerUniforms playerUniforms = {};
+  playerUniforms.position[0] = 0.0f;
+  playerUniforms.position[1] = 0.0f;
+  playerUniforms._pad[0] = 0.0f;
+  playerUniforms._pad[1] = 0.0f;
+
+  // Uniform buffer (Uniform | CopyDst)
+  WGPUBufferDescriptor uniformBufDesc = {};
+  uniformBufDesc.nextInChain = nullptr;
+  uniformBufDesc.label = "Player Uniform Buffer";
+  uniformBufDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+  uniformBufDesc.size = sizeof(PlayerUniforms);
+  uniformBufDesc.mappedAtCreation = false;
+  WGPUBuffer uniformBuffer = wgpuDeviceCreateBuffer(device, &uniformBufDesc);
+
+  // Bind group layout (jeden wpis: buffer uniform, widoczny w vertex shader)
+  WGPUBindGroupLayoutEntry bglEntry = {};
+  bglEntry.nextInChain = nullptr;
+  bglEntry.binding = 0;
+  bglEntry.visibility = WGPUShaderStage_Vertex;
+  bglEntry.buffer.nextInChain = nullptr;
+  bglEntry.buffer.type = WGPUBufferBindingType_Uniform;
+  bglEntry.buffer.hasDynamicOffset = false;
+  bglEntry.buffer.minBindingSize = sizeof(PlayerUniforms);
+  // Zeruj inne typy bindingów
+  bglEntry.sampler.type = WGPUSamplerBindingType_Undefined;
+  bglEntry.texture.sampleType = WGPUTextureSampleType_Undefined;
+  bglEntry.storageTexture.access = WGPUStorageTextureAccess_Undefined;
+
+  WGPUBindGroupLayoutDescriptor bglDesc = {};
+  bglDesc.nextInChain = nullptr;
+  bglDesc.label = "Player Bind Group Layout";
+  bglDesc.entryCount = 1;
+  bglDesc.entries = &bglEntry;
+  WGPUBindGroupLayout bindGroupLayout =
+      wgpuDeviceCreateBindGroupLayout(device, &bglDesc);
+
+  // Bind group — łączy bufor z layoutem
+  WGPUBindGroupEntry bgEntry = {};
+  bgEntry.nextInChain = nullptr;
+  bgEntry.binding = 0;
+  bgEntry.buffer = uniformBuffer;
+  bgEntry.offset = 0;
+  bgEntry.size = sizeof(PlayerUniforms);
+  bgEntry.sampler = nullptr;
+  bgEntry.textureView = nullptr;
+
+  WGPUBindGroupDescriptor bgDesc = {};
+  bgDesc.nextInChain = nullptr;
+  bgDesc.label = "Player Bind Group";
+  bgDesc.layout = bindGroupLayout;
+  bgDesc.entryCount = 1;
+  bgDesc.entries = &bgEntry;
+  WGPUBindGroup bindGroup = wgpuDeviceCreateBindGroup(device, &bgDesc);
+
+  // ── 10. Tworzenie Render Pipeline ────────────────────────
   WGPURenderPipeline pipeline =
-      createPipeline(device, WGPUTextureFormat_BGRA8Unorm);
+      createPipeline(device, WGPUTextureFormat_BGRA8Unorm, bindGroupLayout);
   if (!pipeline) {
+    wgpuBindGroupRelease(bindGroup);
+    wgpuBindGroupLayoutRelease(bindGroupLayout);
+    wgpuBufferRelease(uniformBuffer);
     wgpuSurfaceUnconfigure(surface);
     wgpuQueueRelease(queue);
     wgpuDeviceRelease(device);
@@ -370,11 +458,27 @@ int main() {
     return -1;
   }
 
-  // ── 10. Pętla renderowania (Triangle) ────────────────────
-  std::cout << "\nWarpEngine started! Rendering..." << std::endl;
+  // ── 11. Pętla renderowania (Triangle + WASD) ─────────────
+  std::cout << "\nWarpEngine started! Use WASD to move. Rendering..."
+            << std::endl;
 
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
+
+    // ── Obsługa klawiatury (WASD) ──────────────────────────
+    const float speed = 0.05f;
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+      playerUniforms.position[1] += speed;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+      playerUniforms.position[1] -= speed;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+      playerUniforms.position[0] -= speed;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+      playerUniforms.position[0] += speed;
+
+    // Prześlij zaktualizowaną pozycję do GPU
+    wgpuQueueWriteBuffer(queue, uniformBuffer, 0, &playerUniforms,
+                         sizeof(playerUniforms));
 
     // 9a. Pobierz bieżącą teksturę z surface
     WGPUSurfaceTexture surfaceTexture = {};
@@ -427,8 +531,9 @@ int main() {
     WGPURenderPassEncoder renderPass =
         wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
 
-    // Rysuj trójkąt
+    // Ustaw pipeline i bind group, rysuj trójkąt
     wgpuRenderPassEncoderSetPipeline(renderPass, pipeline);
+    wgpuRenderPassEncoderSetBindGroup(renderPass, 0, bindGroup, 0, nullptr);
     wgpuRenderPassEncoderDraw(renderPass, 3, 1, 0, 0);
 
     wgpuRenderPassEncoderEnd(renderPass);
@@ -452,10 +557,13 @@ int main() {
     wgpuTextureRelease(surfaceTexture.texture);
   }
 
-  // ── 11. Sprzątanie zasobów ───────────────────────────────
+  // ── 12. Sprzątanie zasobów ───────────────────────────────
   std::cout << "\nShutting down WarpEngine..." << std::endl;
 
   wgpuRenderPipelineRelease(pipeline);
+  wgpuBindGroupRelease(bindGroup);
+  wgpuBindGroupLayoutRelease(bindGroupLayout);
+  wgpuBufferRelease(uniformBuffer);
   wgpuSurfaceUnconfigure(surface);
   wgpuQueueRelease(queue);
   wgpuDeviceRelease(device);
