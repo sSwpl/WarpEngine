@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(WarpEngine LANGUAGES CXX)
+if(APPLE)
+    project(WarpEngine LANGUAGES CXX OBJCXX)
+else()
+    project(WarpEngine LANGUAGES CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,7 +41,16 @@ endif()
 set(WGPU_ROOT "${CMAKE_SOURCE_DIR}/external/wgpu")
 
 # --- 3. Executable ---
-add_executable(WarpEngine src/main.cpp)
+set(WARP_SOURCES
+    src/main.cpp
+    src/wgpu_surface.cpp
+)
+
+if(APPLE)
+    list(APPEND WARP_SOURCES src/wgpu_surface_macos.mm)
+endif()
+
+add_executable(WarpEngine ${WARP_SOURCES})
 
 if(EXISTS "${WGPU_ROOT}")
     # Include Header
@@ -92,5 +105,5 @@ endif()
 
 # macOS specific frameworks (often needed for windowing/graphics)
 if(APPLE)
-    target_link_libraries(WarpEngine PUBLIC "-framework Cocoa" "-framework CoreVideo" "-framework IOKit" "-framework QuartzCore")
+    target_link_libraries(WarpEngine PUBLIC "-framework Cocoa" "-framework CoreVideo" "-framework IOKit" "-framework QuartzCore" "-framework Metal")
 endif()
