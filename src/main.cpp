@@ -87,6 +87,135 @@ const char *backendTypeName(WGPUBackendType type) {
 }
 
 // ============================================================
+//  WGSL Shader
+// ============================================================
+
+const char *shaderSource = R"(
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec3f,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+    var pos = array<vec2f, 3>(
+        vec2f( 0.0,  0.5),   // góra
+        vec2f(-0.5, -0.5),   // lewy dół
+        vec2f( 0.5, -0.5)    // prawy dół
+    );
+
+    var out: VertexOutput;
+    out.position = vec4f(pos[vertexIndex], 0.0, 1.0);
+    out.color = vec3f(1.0, 0.0, 0.0); // czerwony
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    return vec4f(in.color, 1.0);
+}
+)";
+
+// ============================================================
+//  Pipeline Creation
+// ============================================================
+
+WGPURenderPipeline createPipeline(WGPUDevice device,
+                                  WGPUTextureFormat surfaceFormat) {
+  // 1. Shader module z kodu WGSL
+  WGPUShaderModuleWGSLDescriptor wgslDesc = {};
+  wgslDesc.chain.next = nullptr;
+  wgslDesc.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
+  wgslDesc.code = shaderSource;
+
+  WGPUShaderModuleDescriptor shaderDesc = {};
+  shaderDesc.nextInChain = &wgslDesc.chain;
+  shaderDesc.label = "Triangle Shader";
+  shaderDesc.hintCount = 0;
+  shaderDesc.hints = nullptr;
+
+  WGPUShaderModule shaderModule =
+      wgpuDeviceCreateShaderModule(device, &shaderDesc);
+  if (!shaderModule) {
+    std::cerr << "Failed to create shader module!" << std::endl;
+    return nullptr;
+  }
+
+  // 2. Color target state (format musi pasować do surface)
+  WGPUBlendState blendState = {};
+  blendState.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+  blendState.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+  blendState.color.operation = WGPUBlendOperation_Add;
+  blendState.alpha.srcFactor = WGPUBlendFactor_One;
+  blendState.alpha.dstFactor = WGPUBlendFactor_Zero;
+  blendState.alpha.operation = WGPUBlendOperation_Add;
+
+  WGPUColorTargetState colorTarget = {};
+  colorTarget.nextInChain = nullptr;
+  colorTarget.format = surfaceFormat;
+  colorTarget.blend = &blendState;
+  colorTarget.writeMask = WGPUColorWriteMask_All;
+
+  // 3. Fragment state
+  WGPUFragmentState fragmentState = {};
+  fragmentState.nextInChain = nullptr;
+  fragmentState.module = shaderModule;
+  fragmentState.entryPoint = "fs_main";
+  fragmentState.constantCount = 0;
+  fragmentState.constants = nullptr;
+  fragmentState.targetCount = 1;
+  fragmentState.targets = &colorTarget;
+
+  // 4. Pipeline descriptor
+  WGPURenderPipelineDescriptor pipelineDesc = {};
+  pipelineDesc.nextInChain = nullptr;
+  pipelineDesc.label = "Triangle Pipeline";
+  pipelineDesc.layout = nullptr; // auto layout
+
+  // Vertex state (brak buforów — pozycje hardkodowane w shaderze)
+  pipelineDesc.vertex.nextInChain = nullptr;
+  pipelineDesc.vertex.module = shaderModule;
+  pipelineDesc.vertex.entryPoint = "vs_main";
+  pipelineDesc.vertex.constantCount = 0;
+  pipelineDesc.vertex.constants = nullptr;
+  pipelineDesc.vertex.bufferCount = 0;
+  pipelineDesc.vertex.buffers = nullptr;
+
+  // Primitive state
+  pipelineDesc.primitive.nextInChain = nullptr;
+  pipelineDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+  pipelineDesc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
+  pipelineDesc.primitive.frontFace = WGPUFrontFace_CCW;
+  pipelineDesc.primitive.cullMode = WGPUCullMode_None;
+
+  // Multisample state
+  pipelineDesc.multisample.nextInChain = nullptr;
+  pipelineDesc.multisample.count = 1;
+  pipelineDesc.multisample.mask = ~0u;
+  pipelineDesc.multisample.alphaToCoverageEnabled = false;
+
+  // Fragment
+  pipelineDesc.fragment = &fragmentState;
+
+  // Brak depth/stencil
+  pipelineDesc.depthStencil = nullptr;
+
+  WGPURenderPipeline pipeline =
+      wgpuDeviceCreateRenderPipeline(device, &pipelineDesc);
+
+  // Shader module już nie jest potrzebny po utworzeniu pipeline'u
+  wgpuShaderModuleRelease(shaderModule);
+
+  if (!pipeline) {
+    std::cerr << "Failed to create render pipeline!" << std::endl;
+  } else {
+    std::cout << "Render pipeline created successfully." << std::endl;
+  }
+
+  return pipeline;
+}
+
+// ============================================================
 //  Main
 // ============================================================
 
@@ -226,7 +355,22 @@ int main() {
   wgpuSurfaceConfigure(surface, &surfConfig);
   std::cout << "Surface configured (800x600, BGRA8Unorm, Fifo)." << std::endl;
 
-  // ── 9. Pętla renderowania (Clear Screen) ─────────────────
+  // ── 9. Tworzenie Render Pipeline ─────────────────────────
+  WGPURenderPipeline pipeline =
+      createPipeline(device, WGPUTextureFormat_BGRA8Unorm);
+  if (!pipeline) {
+    wgpuSurfaceUnconfigure(surface);
+    wgpuQueueRelease(queue);
+    wgpuDeviceRelease(device);
+    wgpuSurfaceRelease(surface);
+    wgpuAdapterRelease(adapter);
+    wgpuInstanceRelease(instance);
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    return -1;
+  }
+
+  // ── 10. Pętla renderowania (Triangle) ────────────────────
   std::cout << "\nWarpEngine started! Rendering..." << std::endl;
 
   while (!glfwWindowShouldClose(window)) {
@@ -282,6 +426,11 @@ int main() {
 
     WGPURenderPassEncoder renderPass =
         wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
+
+    // Rysuj trójkąt
+    wgpuRenderPassEncoderSetPipeline(renderPass, pipeline);
+    wgpuRenderPassEncoderDraw(renderPass, 3, 1, 0, 0);
+
     wgpuRenderPassEncoderEnd(renderPass);
     wgpuRenderPassEncoderRelease(renderPass);
 
@@ -303,9 +452,10 @@ int main() {
     wgpuTextureRelease(surfaceTexture.texture);
   }
 
-  // ── 10. Sprzątanie zasobów ───────────────────────────────
+  // ── 11. Sprzątanie zasobów ───────────────────────────────
   std::cout << "\nShutting down WarpEngine..." << std::endl;
 
+  wgpuRenderPipelineRelease(pipeline);
   wgpuSurfaceUnconfigure(surface);
   wgpuQueueRelease(queue);
   wgpuDeviceRelease(device);
