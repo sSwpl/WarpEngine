@@ -1,50 +1,96 @@
-# download_libs.ps1 — Pobiera wgpu-native na Windows (odpowiednik download_libs.sh)
+# download_libs.ps1 — Pobiera wgpu-native i GLFW na Windows (odpowiednik download_libs.sh)
 
-# Konfiguracja
+# ============================================================
+#  KONFIGURACJA
+# ============================================================
 $WGPU_VERSION = "v0.19.1.1"
-$FILE = "wgpu-windows-x86_64-release.zip"
-$URL = "https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_VERSION/$FILE"
-$TARGET_DIR = "external/wgpu"
+$GLFW_VERSION = "3.3.8"
 
-Write-Host "=== wgpu-native Downloader (Windows) ===" -ForegroundColor Cyan
-Write-Host "Wersja:  $WGPU_VERSION"
-Write-Host "Plik:    $FILE"
-Write-Host "URL:     $URL"
-Write-Host ""
+# ============================================================
+#  1. wgpu-native
+# ============================================================
+$WGPU_FILE = "wgpu-windows-x86_64-release.zip"
+$WGPU_URL = "https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_VERSION/$WGPU_FILE"
+$WGPU_DIR = "external/wgpu"
+
+Write-Host "=== wgpu-native $WGPU_VERSION ===" -ForegroundColor Cyan
 
 # Tworzenie folderow
-New-Item -ItemType Directory -Force -Path "$TARGET_DIR/lib" | Out-Null
-New-Item -ItemType Directory -Force -Path "$TARGET_DIR/include/webgpu" | Out-Null
+New-Item -ItemType Directory -Force -Path "$WGPU_DIR/lib" | Out-Null
+New-Item -ItemType Directory -Force -Path "$WGPU_DIR/include/webgpu" | Out-Null
 
 # Pobieranie
-$zipPath = "$TARGET_DIR/$FILE"
-Write-Host "Pobieranie..." -ForegroundColor Yellow
+$zipPath = "$WGPU_DIR/$WGPU_FILE"
+Write-Host "Pobieranie $WGPU_FILE ..." -ForegroundColor Yellow
 try {
-    Invoke-WebRequest -Uri $URL -OutFile $zipPath -UseBasicParsing
-} catch {
-    Write-Host "BLAD: Nie udalo sie pobrac pliku!" -ForegroundColor Red
+    Invoke-WebRequest -Uri $WGPU_URL -OutFile $zipPath -UseBasicParsing
+}
+catch {
+    Write-Host "BLAD: Nie udalo sie pobrac wgpu-native!" -ForegroundColor Red
     Write-Host $_.Exception.Message
     exit 1
 }
 Write-Host "Pobrano!" -ForegroundColor Green
 
 # Rozpakowywanie
-Write-Host "Rozpakowywanie..." -ForegroundColor Yellow
-Expand-Archive -Path $zipPath -DestinationPath $TARGET_DIR -Force
-Write-Host "Rozpakowano!" -ForegroundColor Green
+Expand-Archive -Path $zipPath -DestinationPath $WGPU_DIR -Force
 
-# Reorganizacja — przeniesienie bibliotek do lib/
-Get-ChildItem "$TARGET_DIR" -Filter "*.dll" -File | Move-Item -Destination "$TARGET_DIR/lib/" -Force
-Get-ChildItem "$TARGET_DIR" -Filter "*.lib" -File | Move-Item -Destination "$TARGET_DIR/lib/" -Force
-Get-ChildItem "$TARGET_DIR" -Filter "*.a"   -File | Move-Item -Destination "$TARGET_DIR/lib/" -Force
+# Reorganizacja
+Get-ChildItem "$WGPU_DIR" -Filter "*.dll" -File | Move-Item -Destination "$WGPU_DIR/lib/" -Force
+Get-ChildItem "$WGPU_DIR" -Filter "*.lib" -File | Move-Item -Destination "$WGPU_DIR/lib/" -Force
+Get-ChildItem "$WGPU_DIR" -Filter "*.a"   -File | Move-Item -Destination "$WGPU_DIR/lib/" -Force
+Get-ChildItem "$WGPU_DIR" -Filter "*.h"   -File | Move-Item -Destination "$WGPU_DIR/include/webgpu/" -Force
 
-# Reorganizacja — przeniesienie headerow do include/webgpu/
-Get-ChildItem "$TARGET_DIR" -Filter "*.h" -File | Move-Item -Destination "$TARGET_DIR/include/webgpu/" -Force
-
-# Czyszczenie — usuwanie zipa
 Remove-Item $zipPath -Force
-
+Write-Host "  -> $WGPU_DIR/lib/        (biblioteki)" -ForegroundColor Gray
+Write-Host "  -> $WGPU_DIR/include/    (headery)" -ForegroundColor Gray
 Write-Host ""
-Write-Host "wgpu-native zainstalowane w $TARGET_DIR" -ForegroundColor Green
-Write-Host "  Headers:   $TARGET_DIR/include/webgpu/" -ForegroundColor Gray
-Write-Host "  Libraries: $TARGET_DIR/lib/" -ForegroundColor Gray
+
+# ============================================================
+#  2. GLFW
+# ============================================================
+$GLFW_FILE = "glfw-$GLFW_VERSION.bin.WIN64.zip"
+$GLFW_URL = "https://github.com/glfw/glfw/releases/download/$GLFW_VERSION/$GLFW_FILE"
+$GLFW_DIR = "external/glfw"
+
+Write-Host "=== GLFW $GLFW_VERSION ===" -ForegroundColor Cyan
+
+# Tworzenie folderow
+New-Item -ItemType Directory -Force -Path "$GLFW_DIR/lib" | Out-Null
+New-Item -ItemType Directory -Force -Path "$GLFW_DIR/include" | Out-Null
+
+# Pobieranie
+$glfwZipPath = "$GLFW_DIR/$GLFW_FILE"
+Write-Host "Pobieranie $GLFW_FILE ..." -ForegroundColor Yellow
+try {
+    Invoke-WebRequest -Uri $GLFW_URL -OutFile $glfwZipPath -UseBasicParsing
+}
+catch {
+    Write-Host "BLAD: Nie udalo sie pobrac GLFW!" -ForegroundColor Red
+    Write-Host $_.Exception.Message
+    exit 1
+}
+Write-Host "Pobrano!" -ForegroundColor Green
+
+# Rozpakowywanie (zip ma folder glfw-3.3.8.bin.WIN64/ w srodku)
+$tempDir = "$GLFW_DIR/_temp"
+Expand-Archive -Path $glfwZipPath -DestinationPath $tempDir -Force
+
+$innerDir = "$tempDir/glfw-$GLFW_VERSION.bin.WIN64"
+
+# Kopiowanie headerow (include/GLFW/glfw3.h, glfw3native.h)
+Copy-Item -Path "$innerDir/include/*" -Destination "$GLFW_DIR/include/" -Recurse -Force
+
+# Kopiowanie bibliotek z lib-vc2022 (MSVC — pasuje do naszego Build Tools)
+Copy-Item -Path "$innerDir/lib-vc2022/*" -Destination "$GLFW_DIR/lib/" -Recurse -Force
+
+# Czyszczenie
+Remove-Item $glfwZipPath -Force
+Remove-Item $tempDir -Recurse -Force
+
+Write-Host "  -> $GLFW_DIR/lib/        (biblioteki: glfw3.lib, glfw3.dll)" -ForegroundColor Gray
+Write-Host "  -> $GLFW_DIR/include/    (headery: GLFW/glfw3.h)" -ForegroundColor Gray
+Write-Host ""
+
+# ============================================================
+Write-Host "Wszystkie biblioteki pobrane!" -ForegroundColor Green

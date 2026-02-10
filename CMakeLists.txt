@@ -5,10 +5,32 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- 1. GLFW (Windowing) ---
-# Automatically downloads and builds GLFW
-include(FetchContent)
-FetchContent_Declare(glfw URL https://github.com/glfw/glfw/releases/download/3.3.8/glfw-3.3.8.zip)
-FetchContent_MakeAvailable(glfw)
+# If pre-built GLFW exists in external/glfw (from download_libs.ps1), use it.
+# Otherwise, fallback to FetchContent (auto-download + build from source — works on Mac/Linux).
+set(GLFW_ROOT "${CMAKE_SOURCE_DIR}/external/glfw")
+
+if(EXISTS "${GLFW_ROOT}")
+    message(STATUS "Using pre-built GLFW from ${GLFW_ROOT}")
+    find_library(GLFW_LIB
+        NAMES glfw3
+        PATHS "${GLFW_ROOT}/lib"
+        NO_DEFAULT_PATH
+    )
+    if(GLFW_LIB)
+        add_library(glfw STATIC IMPORTED)
+        set_target_properties(glfw PROPERTIES
+            IMPORTED_LOCATION "${GLFW_LIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${GLFW_ROOT}/include"
+        )
+    else()
+        message(FATAL_ERROR "GLFW lib not found in ${GLFW_ROOT}/lib — delete external/glfw and re-run download_libs.ps1")
+    endif()
+else()
+    message(STATUS "external/glfw not found — downloading GLFW via FetchContent...")
+    include(FetchContent)
+    FetchContent_Declare(glfw URL https://github.com/glfw/glfw/releases/download/3.3.8/glfw-3.3.8.zip)
+    FetchContent_MakeAvailable(glfw)
+endif()
 
 # --- 2. WebGPU (Graphics) ---
 # Expects wgpu-native in external/wgpu
