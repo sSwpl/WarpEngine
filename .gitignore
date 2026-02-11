@@ -1,12 +1,40 @@
 # OS / Helper files
 .DS_Store
 .vscode/
+.vs/
+.cache/
+*.user
 
 # Build directories
 build/
+build_temp/
 bin/
 out/
+debug/
+release/
+x64/
+x86/
 
-# External dependencies
+# CMake
+CMakeUserPresets.json
+compile_commands.json
+*.cmake
+!CMakeLists.txt
+!/src/*.cmake
+!/external/*.cmake
+
+# Binary / Object files
+*.exe
+*.dll
+*.so
+*.dylib
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+*.lib
+
+# External dependencies (if downloaded via scripts)
 external/wgpu/
 external/glfw/

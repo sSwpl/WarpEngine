@@ -4,17 +4,21 @@
 #include <webgpu/webgpu.h>
 #include <webgpu/wgpu.h>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "wgpu_surface.h"
 
 // ============================================================
 //  Struktury danych
 // ============================================================
 
-// Uniform buffer przesyłany do GPU — pozycja gracza (vec2f + padding do 16B)
+// Uniform buffer przesyłany do GPU — macierz projekcji + pozycja gracza
 struct PlayerUniforms {
-  float position[2]; // x, y
-  float _pad[2];     // wyrównanie do 16 bajtów (std140)
-};
+  glm::mat4 projection; // 64 bytes (4×4 floats)
+  float position[2];    // x, y — 8 bytes
+  float _pad[2];        // wyrównanie do 16 bajtów (std140)
+}; // total: 80 bytes
 
 // ============================================================
 //  Callbacks
@@ -102,6 +106,7 @@ const char *backendTypeName(WGPUBackendType type) {
 
 const char *shaderSource = R"(
 struct PlayerUniforms {
+    projection: mat4x4<f32>,
     position: vec2f,
 };
 
@@ -115,13 +120,13 @@ struct VertexOutput {
 @vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
     var pos = array<vec2f, 3>(
-        vec2f( 0.0,  0.5),   // góra
-        vec2f(-0.5, -0.5),   // lewy dół
-        vec2f( 0.5, -0.5)    // prawy dół
+        vec2f(400.0, 100.0),   // góra (środek)
+        vec2f(100.0, 500.0),   // lewy dół
+        vec2f(700.0, 500.0)    // prawy dół
     );
 
     var out: VertexOutput;
-    out.position = vec4f(pos[vertexIndex] + player.position, 0.0, 1.0);
+    out.position = player.projection * vec4f(pos[vertexIndex] + player.position, 0.0, 1.0);
     out.color = vec3f(1.0, 0.0, 0.0); // czerwony
     return out;
 }
@@ -386,6 +391,8 @@ int main() {
 
   // ── 9. Tworzenie Uniform Buffer i Bind Group ─────────────
   PlayerUniforms playerUniforms = {};
+  playerUniforms.projection =
+      glm::ortho(0.0f, 800.0f, 600.0f, 0.0f, -1.0f, 1.0f);
   playerUniforms.position[0] = 0.0f;
   playerUniforms.position[1] = 0.0f;
   playerUniforms._pad[0] = 0.0f;
@@ -466,11 +473,11 @@ int main() {
     glfwPollEvents();
 
     // ── Obsługa klawiatury (WASD) ──────────────────────────
-    const float speed = 0.05f;
+    const float speed = 5.0f;
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-      playerUniforms.position[1] += speed;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
       playerUniforms.position[1] -= speed;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+      playerUniforms.position[1] += speed;
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
       playerUniforms.position[0] -= speed;
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
