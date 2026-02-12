@@ -2,9 +2,9 @@ Phase 1: Fundamenty Graficzne 🎨
 
 Cel: Przejście od hardcodowanego trójkąta do wyświetlania tekstur i obsługi kamery 2D.
 
-[ ] Integracja biblioteki matematycznej (GLM)
+[-] Integracja biblioteki matematycznej (GLM)
 
-[ ] Dodanie glm do projektu (przez CMake FetchContent).
+[-] Dodanie glm do projektu (przez CMake FetchContent).
 
 [ ] Implementacja macierzy projekcji (Orthographic Projection) dla 2D.
 
