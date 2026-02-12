@@ -2,27 +2,27 @@ Phase 1: Fundamenty Graficzne 🎨
 
 Cel: Przejście od hardcodowanego trójkąta do wyświetlania tekstur i obsługi kamery 2D.
 
-[-] Integracja biblioteki matematycznej (GLM)
+[x] Integracja biblioteki matematycznej (GLM)
 
-[-] Dodanie glm do projektu (przez CMake FetchContent).
+[x] Dodanie glm do projektu (przez CMake FetchContent).
 
-[ ] Implementacja macierzy projekcji (Orthographic Projection) dla 2D.
+[x] Implementacja macierzy projekcji (Orthographic Projection) dla 2D.
 
-[ ] System Tekstur
+[x] System Tekstur
 
-[ ] Integracja stb_image do ładowania plików PNG/JPG.
+[x] Integracja stb_image do ładowania plików PNG/JPG.
 
-[ ] Implementacja funkcji przesyłania danych obrazu do WGPUTexture.
+[x] Implementacja funkcji przesyłania danych obrazu do WGPUTexture.
 
-[ ] Stworzenie Samplera i Texture View.
+[x] Stworzenie Samplera i Texture View.
 
-[ ] Renderowanie Sprite'ów (Quad)
+[x] Renderowanie Sprite'ów (Quad)
 
-[ ] Zmiana geometrii z trójkąta na prostokąt (Quad) oparty na 4 wierzchołkach i 6 indeksach.
+[x] Zmiana geometrii z trójkąta na prostokąt (Quad) oparty na 4 wierzchołkach i 6 indeksach.
 
-[ ] Obsługa współrzędnych UV (teksturowanie).
+[x] Obsługa współrzędnych UV (teksturowanie).
 
-[ ] Shader obsługujący tekstury (sample'owanie koloru).
+[x] Shader obsługujący tekstury (sample'owanie koloru).
 
 Phase 2: Wydajność i "Horde Rendering" 🚀
 

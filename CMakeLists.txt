@@ -45,6 +45,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+# --- stb_image (header-only, local copy) ---
+set(STB_ROOT "${CMAKE_SOURCE_DIR}/external/stb")
+
 # --- 2. WebGPU (Graphics) ---
 # Expects wgpu-native in external/wgpu
 set(WGPU_ROOT "${CMAKE_SOURCE_DIR}/external/wgpu")
@@ -53,6 +56,8 @@ set(WGPU_ROOT "${CMAKE_SOURCE_DIR}/external/wgpu")
 set(WARP_SOURCES
     src/main.cpp
     src/wgpu_surface.cpp
+    src/stb_image_impl.cpp
+    src/texture.cpp
 )
 
 if(APPLE)
@@ -66,6 +71,7 @@ if(EXISTS "${WGPU_ROOT}")
     # wgpu-native usually has headers in 'include/webgpu' or just 'include' depending on how you unpack
     # We will assume include/webgpu/webgpu.h structure or include/webgpu.h
     target_include_directories(WarpEngine PUBLIC "${WGPU_ROOT}/include")
+    target_include_directories(WarpEngine PUBLIC "${STB_ROOT}")
     
     # Find Library
     find_library(WGPU_LIB 
