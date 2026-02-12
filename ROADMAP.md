@@ -94,29 +94,33 @@ Cel: Implementacja reguł gry właściwej.
 
 [x] Dropienie "kryształów XP" po śmierci wroga.
 
-[ ] Level Up i proste menu wyboru ulepszenia.
+[x] Level Up i proste menu wyboru ulepszenia.
 
-Phase 5: UI i Audio 🔊
+Phase 5: UI i Audio 🔊 (Completed)
 
 Cel: Interfejs użytkownika i udźwiękowienie.
 
-[ ] System Audio
+[x] System Audio
 
-[ ] Integracja miniaudio lub Soloud.
+[x] Integracja miniaudio.
 
-[ ] Odtwarzanie SFX przy ataku/śmierci.
+[x] Odtwarzanie SFX przy ataku/śmierci/zbieraniu/level up.
 
-[ ] Text Rendering (Bitmap Fonts)
+[x] Text Rendering (Bitmap Fonts)
 
-[ ] Ładowanie fontu jako tekstury.
+[x] Ładowanie fontu jako tekstury.
 
-[ ] Renderowanie licznika czasu, poziomu i licznika zabójstw.
+[x] Renderowanie licznika czasu, poziomu i licznika zabójstw.
 
-[ ] UI Overlay
+[x] UI Overlay
 
-[ ] Pasek zdrowia (Health Bar) nad głową gracza/wrogów.
+[x] Pasek zdrowia (Health Bar) nad głową gracza.
 
-[ ] Ekran "Game Over".
+[x] Pasek XP.
+
+[x] Ekran "Game Over".
+
+[x] Ekran "Level Up" z wyborem ulepszeń.
 
 Phase 6: Polish & Build 📦
 

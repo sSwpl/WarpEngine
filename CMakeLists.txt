@@ -59,6 +59,8 @@ set(WARP_SOURCES
     src/stb_image_impl.cpp
     src/texture.cpp
     src/game.cpp
+    src/audio.cpp
+    src/miniaudio_impl.cpp
 )
 
 if(APPLE)
@@ -73,6 +75,7 @@ if(EXISTS "${WGPU_ROOT}")
     # We will assume include/webgpu/webgpu.h structure or include/webgpu.h
     target_include_directories(WarpEngine PUBLIC "${WGPU_ROOT}/include")
     target_include_directories(WarpEngine PUBLIC "${STB_ROOT}")
+    target_include_directories(WarpEngine PUBLIC "${CMAKE_SOURCE_DIR}/external/miniaudio")
     
     # Find Library
     find_library(WGPU_LIB 
