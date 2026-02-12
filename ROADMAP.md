@@ -76,23 +76,23 @@ Phase 4: Mechaniki "Survivor" ⚔️
 
 Cel: Implementacja reguł gry właściwej.
 
-[ ] System Spawnowania Wrogów
+[x] System Spawnowania Wrogów
 
-[ ] Algorytm spawnowania wrogów poza krawędzią ekranu.
+[x] Algorytm spawnowania wrogów poza krawędzią ekranu.
 
-[ ] Skalowanie trudności (fale przeciwników).
+[x] Skalowanie trudności (fale przeciwników).
 
-[ ] System Broni
+[] System Broni
 
-[ ] Logika "Auto-fire" (najbliższy wróg).
+[x] Logika "Auto-fire" (najbliższy wróg).
 
-[ ] Obsługa pocisków (ruch, kolizja, znikanie).
+[x] Obsługa pocisków (ruch, kolizja, znikanie).
 
-[ ] Statystyki i Rozwój
+[] Statystyki i Rozwój
 
-[ ] System HP (Gracz i Wrogowie).
+[x] System HP (Gracz i Wrogowie).
 
-[ ] Dropienie "kryształów XP" po śmierci wroga.
+[x] Dropienie "kryształów XP" po śmierci wroga.
 
 [ ] Level Up i proste menu wyboru ulepszenia.
 
