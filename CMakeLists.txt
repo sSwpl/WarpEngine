@@ -58,6 +58,7 @@ set(WARP_SOURCES
     src/wgpu_surface.cpp
     src/stb_image_impl.cpp
     src/texture.cpp
+    src/game.cpp
 )
 
 if(APPLE)

@@ -28,49 +28,49 @@ Phase 2: Wydajność i "Horde Rendering" 🚀
 
 Cel: Nauczenie silnika renderowania 10 000+ obiektów bez spadku FPS (kluczowe dla gatunku Survivor).
 
-[ ] GPU Instancing
+[x] GPU Instancing
 
-[ ] Przebudowa potoku renderowania: jeden model (Quad) rysowany N razy.
+[x] Przebudowa potoku renderowania: jeden model (Quad) rysowany N razy.
 
-[ ] Stworzenie bufora instancji (Instance Buffer) przechowującego: Position, Scale, Rotation, TextureIndex.
+[x] Stworzenie bufora instancji (Instance Buffer) przechowującego: Position, Scale, Rotation, TextureIndex.
 
-[ ] System Kamery
+[x] System Kamery
 
-[ ] Płynne podążanie kamery za graczem.
+[x] Płynne podążanie kamery za graczem.
 
-[ ] Przesyłanie macierzy View/Projection do shaderów przez Uniform Buffer.
+[x] Przesyłanie macierzy View/Projection do shaderów przez Uniform Buffer.
 
-[ ] Texture Atlas
+[x] Texture Atlas
 
-[ ] Obsługa atlasów tekstur (wiele sprite'ów w jednym pliku obrazu).
+[x] Obsługa atlasów tekstur (wiele sprite'ów w jednym pliku obrazu).
 
-[ ] Obliczanie współrzędnych UV dla konkretnych klatek animacji w atlasie.
+[x] Obliczanie współrzędnych UV dla konkretnych klatek animacji w atlasie.
 
 Phase 3: Architektura Gry (Gameplay Core) 🎮
 
 Cel: Stworzenie struktur danych do zarządzania logiką gry.
 
-[ ] Delta Time & Game Loop
+[x] Delta Time & Game Loop
 
-[ ] Implementacja stałego lub zmiennego kroku czasowego (niezależność fizyki od FPS).
+[x] Implementacja stałego lub zmiennego kroku czasowego (niezależność fizyki od FPS).
 
-[ ] Prosty System Entity (ECS-lite)
+[x] Prosty System Entity (ECS-lite)
 
-[ ] Struktura Entity (Player, Enemy, Projectile).
+[x] Struktura Entity (Player, Enemy, Projectile).
 
-[ ] Zarządzanie listą aktywnych obiektów.
+[x] Zarządzanie listą aktywnych obiektów.
 
-[ ] Kolizje (AABB)
+[x] Kolizje (AABB/Circle)
 
-[ ] Implementacja prostych kolizji prostokąt-prostokąt (Axis-Aligned Bounding Box).
+[x] Implementacja prostych kolizji prostokąt-prostokąt (Axis-Aligned Bounding Box).
 
-[ ] System oddzielania wrogów od siebie (żeby nie wchodzili w jeden punkt).
+[x] System oddzielania wrogów od siebie (Spatial Grid Separation).
 
-[ ] Sterowanie Graczem
+[x] Sterowanie Graczem
 
-[ ] Płynne poruszanie postacią.
+[x] Płynne poruszanie postacią.
 
-[ ] Obsługa animacji (zmiana klatek w czasie).
+[x] Obsługa animacji (zmiana klatek w czasie).
 
 Phase 4: Mechaniki "Survivor" ⚔️
 
