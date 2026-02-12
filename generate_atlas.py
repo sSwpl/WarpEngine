@@ -44,6 +44,20 @@ def draw_purple_gem(draw, x, y):
     points = [(x+32, y+10), (x+20, y+32), (x+32, y+32), (x+20, y+54), (x+44, y+30), (x+32, y+30)]
     draw.polygon(points, fill=(255, 255, 255, 255))
 
+def draw_bones(draw, x, y):
+    # Skeleton bones (corpse)
+    draw.ellipse([x+22, y+18, x+42, y+34], fill=(200, 200, 200, 255)) # Skull
+    draw.ellipse([x+28, y+22, x+33, y+28], fill=(0, 0, 0, 255)) # Eye L
+    draw.ellipse([x+35, y+22, x+40, y+28], fill=(0, 0, 0, 255)) # Eye R
+    draw.line([x+18, y+38, x+46, y+48], fill=(200, 200, 200, 255), width=3) # Bone 1
+    draw.line([x+18, y+48, x+46, y+38], fill=(200, 200, 200, 255), width=3) # Bone 2
+
+def draw_slime(draw, x, y):
+    # Blob slime puddle (corpse)
+    draw.ellipse([x+8, y+30, x+56, y+52], fill=(180, 220, 180, 200))
+    draw.ellipse([x+14, y+34, x+50, y+48], fill=(140, 200, 140, 220))
+    draw.ellipse([x+20, y+24, x+36, y+38], fill=(160, 210, 160, 180))
+
 draw = ImageDraw.Draw(atlas)
 
 # Row 1
@@ -52,9 +66,11 @@ draw_blob(draw, 64, 0)
 draw_skeleton(draw, 128, 0)
 draw_crystal(draw, 192, 0)
 
-# Row 2 (Powerups)
+# Row 2 (Powerups + Corpses)
 draw_green_gem(draw, 0, 64)   # (0, 1)
 draw_purple_gem(draw, 64, 64) # (1, 1)
+draw_bones(draw, 128, 64)     # (2, 1) - Skeleton corpse
+draw_slime(draw, 192, 64)     # (3, 1) - Blob corpse
 
 atlas.save('assets/atlas.png')
 print("Generated assets/atlas.png (256x256)")

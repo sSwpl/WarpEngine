@@ -15,20 +15,18 @@ enum class EntityType {
   Crystal,
   Bullet,
   HealthGem,
-  PiercingGem
+  PiercingGem,
+  SkeletonMage,   // Boss
+  EnemyBullet,    // Boss projectile
+  SkeletonCorpse, // Dead skeleton (bones)
+  BlobCorpse      // Dead blob (slime)
 };
 
 // Game States
 enum class GameState { Playing, LevelUp, GameOver };
 
 // Upgrade Types
-enum class UpgradeType {
-  MaxHP,      // +20 Max HP & Heal
-  Damage,     // +5 Bullet Damage
-  FireRate,   // -0.05s Cooldown
-  Speed,      // +50 Move Speed
-  Penetration // +2 Penetration (permanent)
-};
+enum class UpgradeType { MaxHP, Damage, FireRate, Speed, Penetration };
 
 struct Upgrade {
   UpgradeType type;
@@ -46,9 +44,14 @@ struct Entity {
   float hp = 10.0f;
   float maxHp = 10.0f;
   float damage = 10.0f;
+  float speed = 100.0f; // Movement speed
   float lifeTime = 0.0f;
   int penetration = 1;
   float piercingTimer = 0.0f;
+  // Boss timers
+  float shootTimer = 0.0f;
+  float summonTimer = 0.0f;
+  // Render
   glm::vec2 scale;
   glm::vec2 uvOffset;
   glm::vec2 uvScale;
@@ -86,7 +89,9 @@ private:
 
   // Spawning
   void SpawnEnemy();
+  void SpawnBoss();
   void SpawnBullet(glm::vec2 targetPos);
+  void SpawnEnemyBullet(glm::vec2 from, glm::vec2 target);
   void SpawnGem(glm::vec2 pos, int type);
   int FindNearestEnemy();
 
@@ -95,7 +100,7 @@ private:
   void ApplyUpgrade(int choice);
   std::vector<Upgrade> GenerateUpgradeOptions();
 
-  // Text Rendering
+  // Text
   void DrawText(std::vector<InstanceData> &data, float x, float y,
                 const std::string &text, glm::vec4 color,
                 float charSize = 16.0f);
@@ -113,20 +118,16 @@ private:
   WGPURenderPipeline pipeline = nullptr;
   WGPUBindGroup camBindGroup = nullptr;
   WGPUBindGroup texBindGroup = nullptr;
-  WGPUBindGroup fontTexBindGroup = nullptr; // Font texture bind group
+  WGPUBindGroup fontTexBindGroup = nullptr;
   WGPUBuffer vertexBuffer = nullptr;
   WGPUBuffer indexBuffer = nullptr;
   WGPUBuffer instanceBuffer = nullptr;
   WGPUBuffer uniformBuffer = nullptr;
 
-  // Resources
   Texture atlasTexture;
   Texture fontTexture;
-
-  // Audio
   AudioSystem audio;
 
-  // Game State
   struct GLFWwindow *window = nullptr;
   GameState state = GameState::Playing;
   CameraUniforms camUniforms;
@@ -137,14 +138,17 @@ private:
   float gameTime = 0.0f;
   float spawnTimer = 0.0f;
   float fireTimer = 0.0f;
-  float fireCooldown = 0.2f; // Upgradeable
+  float fireCooldown = 0.2f;
   int score = 0;
   int xp = 0;
   int xpToNextLevel = 10;
   int playerLevel = 0;
-  float playerSpeed = 300.0f; // Upgradeable
-  float bulletDamage = 15.0f; // Upgradeable
-  int bulletPenetration = 1;  // Upgradeable
+  float playerSpeed = 300.0f;
+  float bulletDamage = 15.0f;
+  int bulletPenetration = 1;
+
+  // Boss (recurring mini-boss)
+  float nextBossTime = 60.0f; // First at 60s, then every ~45s (decreasing)
 
   // Level Up Menu
   std::vector<Upgrade> currentUpgrades;
