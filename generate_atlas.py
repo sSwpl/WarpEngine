@@ -1,109 +1,60 @@
 from PIL import Image, ImageDraw
+import random
 
-# Create 256x256 atlas (2x2 grid of 64x64 sprites? No, 2x2 grid of 128x128 slots? Or 4x4 grid of 64x64?)
-# Let's stick to 2x2 grid where each cell is 64x64. So image size 128x128.
-# (0,0) Player
-# (1,0) Blob
-# (0,1) Skeleton
-# (1,1) Crystal
-
-IMG_SIZE = 128
+# Increase to 256x256 (4x4 grid of 64px)
+IMG_SIZE = 256
 CELL_SIZE = 64
 
 atlas = Image.new('RGBA', (IMG_SIZE, IMG_SIZE), (0, 0, 0, 0))
 pixels = atlas.load()
 
-# --- 1. PLAYER (Top-Left 0,0) ---
-# Copied from previous script logic, simplified
-def draw_player(base_x, base_y):
-    SKIN = (255, 220, 180)
-    ARMOR = (60, 80, 120)
-    ARMOR_DARK = (40, 60, 90)
-    CAPE = (140, 40, 50)
-    METAL = (160, 170, 180)
-    
-    # Cape
-    for y in range(28, 50):
-        for x in range(18, 46):
-            if x < 22 or x >= 42:
-                pixels[base_x+x, base_y+y] = CAPE
-    # Body
-    for y in range(28, 58):
-        for x in range(24, 40):
-            pixels[base_x+x, base_y+y] = ARMOR
-    # Head
-    for y in range(16, 28):
-        for x in range(26, 38):
-            pixels[base_x+x, base_y+y] = SKIN
-    # Helmet
-    for y in range(14, 20):
-        for x in range(24, 40):
-            pixels[base_x+x, base_y+y] = METAL
-    # Face
-    pixels[base_x+29, base_y+21] = (40, 40, 40)
-    pixels[base_x+33, base_y+21] = (40, 40, 40)
+def draw_player(draw, x, y):
+    # White Knight
+    draw.rectangle([x+20, y+10, x+44, y+50], fill=(200, 200, 200, 255)) 
+    draw.rectangle([x+28, y+2, x+36, y+10], fill=(200, 200, 200, 255)) # Head
+    draw.rectangle([x+10, y+20, x+20, y+40], fill=(150, 150, 150, 255)) # Shield
+    draw.line([x+44, y+20, x+60, y+20], fill=(255, 255, 255, 255), width=3) # Sword
 
-draw_player(0, 0)
+def draw_blob(draw, x, y):
+    # Green Blob (now white base for tinting)
+    draw.ellipse([x+10, y+10, x+54, y+54], fill=(255, 255, 255, 255))
+    draw.rectangle([x+20, y+30, x+44, y+40], fill=(0, 0, 0, 255)) # Mouth
+    draw.ellipse([x+15, y+20, x+25, y+30], fill=(0, 0, 0, 255)) # Eye L
+    draw.ellipse([x+39, y+20, x+49, y+30], fill=(0, 0, 0, 255)) # Eye R
 
-# --- 2. BLOB (Top-Right 1,0) ---
-def draw_blob(base_x, base_y):
-    COLOR = (50, 200, 50)
-    COLOR_DARK = (20, 140, 20)
-    # Circle-ish shape
-    for y in range(64):
-        for x in range(64):
-            dx = x - 32
-            dy = y - 32
-            dist = (dx*dx + dy*dy)**0.5
-            if dist < 24:
-                pixels[base_x+x, base_y+y] = COLOR
-            elif dist < 26:
-                pixels[base_x+x, base_y+y] = COLOR_DARK
-    # Eyes
-    pixels[base_x+24, base_y+24] = (255, 255, 255)
-    pixels[base_x+40, base_y+24] = (255, 255, 255)
-    pixels[base_x+24, base_y+25] = (0, 0, 0)
-    pixels[base_x+40, base_y+25] = (0, 0, 0)
+def draw_skeleton(draw, x, y):
+    # Skeleton (White base)
+    draw.rectangle([x+24, y+10, x+40, y+26], fill=(240, 240, 240, 255)) # Skull
+    draw.line([x+32, y+26, x+32, y+46], fill=(240, 240, 240, 255), width=3) # Spine
+    draw.line([x+20, y+30, x+44, y+30], fill=(240, 240, 240, 255), width=2) # Arms
+    draw.line([x+24, y+46, x+24, y+60], fill=(240, 240, 240, 255), width=2) # Leg L
+    draw.line([x+40, y+46, x+40, y+60], fill=(240, 240, 240, 255), width=2) # Leg R
 
-draw_blob(64, 0)
+def draw_crystal(draw, x, y):
+    # Diamond Shape (White for Tinting)
+    draw.polygon([(x+32, y+10), (x+54, y+32), (x+32, y+54), (x+10, y+32)], fill=(255, 255, 255, 255)) 
 
-# --- 3. SKELETON (Bottom-Left 0,1) ---
-def draw_skeleton(base_x, base_y):
-    BONE = (220, 220, 220)
-    for y in range(16, 56):
-        # Spine
-        pixels[base_x+32, base_y+y] = BONE
-        pixels[base_x+31, base_y+y] = BONE
-    # Ribs
-    for y in range(30, 40, 3):
-        for x in range(24, 40):
-            pixels[base_x+x, base_y+y] = BONE
-    # Head
-    for y in range(16, 28):
-        for x in range(26, 38):
-            pixels[base_x+x, base_y+y] = BONE
-    # Eyes
-    pixels[base_x+29, base_y+22] = (0, 0, 0)
-    pixels[base_x+34, base_y+22] = (0, 0, 0)
+def draw_green_gem(draw, x, y):
+    # Heart/Cross shape
+    draw.rectangle([x+28, y+10, x+36, y+54], fill=(255, 255, 255, 255))
+    draw.rectangle([x+10, y+28, x+54, y+36], fill=(255, 255, 255, 255))
 
-draw_skeleton(0, 64)
+def draw_purple_gem(draw, x, y):
+    # Lightning Bolt
+    points = [(x+32, y+10), (x+20, y+32), (x+32, y+32), (x+20, y+54), (x+44, y+30), (x+32, y+30)]
+    draw.polygon(points, fill=(255, 255, 255, 255))
 
-# --- 4. CRYSTAL (Bottom-Right 1,1) ---
-def draw_crystal(base_x, base_y):
-    BLUE = (100, 200, 255)
-    WHITE = (255, 255, 255)
-    # Diamond shape
-    for y in range(16, 48):
-        for x in range(16, 48):
-            dx = abs(x - 32)
-            dy = abs(y - 32)
-            if dx + dy < 16:
-                pixels[base_x+x, base_y+y] = BLUE
-    # Shine
-    pixels[base_x+32, base_y+24] = WHITE
-    pixels[base_x+32, base_y+25] = WHITE
+draw = ImageDraw.Draw(atlas)
 
-draw_crystal(64, 64)
+# Row 1
+draw_player(draw, 0, 0)
+draw_blob(draw, 64, 0)
+draw_skeleton(draw, 128, 0)
+draw_crystal(draw, 192, 0)
+
+# Row 2 (Powerups)
+draw_green_gem(draw, 0, 64)   # (0, 1)
+draw_purple_gem(draw, 64, 64) # (1, 1)
 
 atlas.save('assets/atlas.png')
-print("Generated assets/atlas.png (128x128)")
+print("Generated assets/atlas.png (256x256)")

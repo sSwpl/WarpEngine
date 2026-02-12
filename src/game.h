@@ -8,7 +8,18 @@
 
 
 // Typy encji
-enum class EntityType { Player, Blob, Skeleton, Crystal, Bullet };
+enum class EntityType {
+  Player,
+  Blob,
+  Skeleton,
+  Crystal,
+  Bullet,
+  HealthGem,  // New
+  PiercingGem // New
+};
+
+// Stan Gry
+enum class GameState { Playing, GameOver };
 
 // Struktura Encji (ECS-lite)
 struct Entity {
@@ -22,14 +33,19 @@ struct Entity {
 
   // Gameplay
   float hp = 10.0f;
+  float maxHp = 10.0f;
   float damage = 10.0f;
-  float lifeTime = 0.0f; // For bullets (despawn timer)
+  float lifeTime = 0.0f;
+
+  // Combat Stats (New)
+  int penetration = 1;        // For bullets
+  float piercingTimer = 0.0f; // For player (buff duration)
 
   // Renderowanie
   glm::vec2 scale;
   glm::vec2 uvOffset;
   glm::vec2 uvScale;
-  glm::vec4 color; // Tint (RGBA)
+  glm::vec4 color;
 };
 
 struct InstanceData {
@@ -37,7 +53,8 @@ struct InstanceData {
   glm::vec2 scale;
   glm::vec2 uvOffset;
   glm::vec2 uvScale;
-  glm::vec4 color; // New: Color Tint
+  glm::vec4 color;
+  float useSolidColor;
 };
 
 struct CameraUniforms {
@@ -55,15 +72,18 @@ public:
 private:
   void InitGraphics();
   void InitGame();
+  void ResetGame();
   void ProcessInput(float dt);
   void Update(float dt);
   void Render();
+  void RenderUI();
   void Cleanup();
 
   // Spawning & Logic
   void SpawnEnemy();
   void SpawnBullet(glm::vec2 targetPos);
-  int FindNearestEnemy(); // Returns index or -1
+  void SpawnGem(glm::vec2 pos, int type); // New (0=Green, 1=Purple)
+  int FindNearestEnemy();
 
   // WebGPU Context
   WGPUInstance instance = nullptr;
@@ -89,6 +109,7 @@ private:
 
   // Game State
   struct GLFWwindow *window = nullptr;
+  GameState state = GameState::Playing;
   CameraUniforms camUniforms;
   std::vector<Entity> entities;
   Entity *player = nullptr;
@@ -96,7 +117,7 @@ private:
   // Progression & Logic Stats
   float gameTime = 0.0f;
   float spawnTimer = 0.0f;
-  float fireTimer = 0.0f; // Weapon Cooldown
+  float fireTimer = 0.0f;
   int score = 0;
 
   // Physics Config

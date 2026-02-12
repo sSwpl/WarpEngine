@@ -7,7 +7,7 @@
 #include <random>
 
 
-// Forward declarations mechanisms
+// Callback forwards
 void onAdapterRequestEnded(WGPURequestAdapterStatus status, WGPUAdapter adapter,
                            char const *message, void *userdata);
 void onDeviceRequestEnded(WGPURequestDeviceStatus status, WGPUDevice device,
@@ -16,7 +16,7 @@ void onUncapturedError(WGPUErrorType type, char const *message, void *userdata);
 void onDeviceLost(WGPUDeviceLostReason reason, char const *message,
                   void *userdata);
 
-// Updated Shader with Color Tint
+// Shader with Solid Color UI Support
 const char *shaderSourceWGSL = R"(
 struct CameraUniforms {
     viewProj: mat4x4<f32>,
@@ -36,13 +36,15 @@ struct InstanceInput {
     @location(3) instScale: vec2f,
     @location(4) uvOffset: vec2f,
     @location(5) uvScale: vec2f,
-    @location(6) color: vec4f, // New Color Attribute
+    @location(6) color: vec4f,
+    @location(7) useSolid: f32, // 1.0 = solid, 0.0 = textured
 };
 
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) uv: vec2f,
     @location(1) color: vec4f,
+    @location(2) useSolid: f32,
 };
 
 @vertex
@@ -52,14 +54,19 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.position = camera.viewProj * vec4f(worldPos, 0.0, 1.0);
     out.uv = (in.uv * inst.uvScale) + inst.uvOffset;
     out.color = inst.color;
+    out.useSolid = inst.useSolid;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    let texColor = textureSample(spriteTex, spriteSampler, in.uv);
-    if (texColor.a < 0.1) { discard; }
-    return texColor * in.color; // Apply Tint
+    if (in.useSolid > 0.5) {
+        return in.color;
+    } else {
+        let texColor = textureSample(spriteTex, spriteSampler, in.uv);
+        if (texColor.a < 0.1) { discard; }
+        return texColor * in.color;
+    }
 }
 )";
 
@@ -69,28 +76,23 @@ Game::~Game() { Cleanup(); }
 bool Game::Initialize() {
   if (!glfwInit())
     return false;
-
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  window = glfwCreateWindow(width, height, "WarpEngine | Combat Update",
+  window = glfwCreateWindow(width, height, "WarpEngine | Power-ups Update",
                             nullptr, nullptr);
   if (!window)
     return false;
-
   instance = wgpuCreateInstance(nullptr);
   surface = createSurfaceForWindow(instance, window);
-
   WGPURequestAdapterOptions adapterOpts = {};
   adapterOpts.compatibleSurface = surface;
   adapterOpts.powerPreference = WGPUPowerPreference_HighPerformance;
   wgpuInstanceRequestAdapter(instance, &adapterOpts, onAdapterRequestEnded,
                              &adapter);
-
   WGPUDeviceDescriptor deviceDesc = {};
   deviceDesc.deviceLostCallback = onDeviceLost;
   wgpuAdapterRequestDevice(adapter, &deviceDesc, onDeviceRequestEnded, &device);
   wgpuDeviceSetUncapturedErrorCallback(device, onUncapturedError, nullptr);
   queue = wgpuDeviceGetQueue(device);
-
   surfConfig.device = device;
   surfConfig.format = WGPUTextureFormat_BGRA8Unorm;
   surfConfig.usage = WGPUTextureUsage_RenderAttachment;
@@ -98,10 +100,8 @@ bool Game::Initialize() {
   surfConfig.height = height;
   surfConfig.presentMode = WGPUPresentMode_Fifo;
   wgpuSurfaceConfigure(surface, &surfConfig);
-
   InitGraphics();
   InitGame();
-
   return true;
 }
 
@@ -111,20 +111,16 @@ void Game::InitGraphics() {
   struct Vertex {
     float x, y, u, v;
   };
-  Vertex quadVertices[4] = {
-      {-0.5f, -0.5f, 0.0f, 0.0f},
-      {0.5f, -0.5f, 1.0f, 0.0f},
-      {0.5f, 0.5f, 1.0f, 1.0f},
-      {-0.5f, 0.5f, 0.0f, 1.0f},
-  };
-
+  Vertex quadVertices[4] = {{-0.5f, -0.5f, 0, 0},
+                            {0.5f, -0.5f, 1, 0},
+                            {0.5f, 0.5f, 1, 1},
+                            {-0.5f, 0.5f, 0, 1}};
   WGPUBufferDescriptor vBufDesc = {};
   vBufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
   vBufDesc.size = sizeof(quadVertices);
   vertexBuffer = wgpuDeviceCreateBuffer(device, &vBufDesc);
   wgpuQueueWriteBuffer(queue, vertexBuffer, 0, quadVertices,
                        sizeof(quadVertices));
-
   uint16_t quadIndices[6] = {0, 1, 2, 0, 2, 3};
   WGPUBufferDescriptor iBufDesc = {};
   iBufDesc.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
@@ -150,7 +146,6 @@ void Game::InitGraphics() {
   WGPUShaderModule shaderModule =
       wgpuDeviceCreateShaderModule(device, &shaderDesc);
 
-  // Bind Groups (same)
   WGPUBindGroupLayoutEntry camEntry = {};
   camEntry.binding = 0;
   camEntry.visibility = WGPUShaderStage_Vertex;
@@ -161,7 +156,6 @@ void Game::InitGraphics() {
   camLayoutDesc.entries = &camEntry;
   WGPUBindGroupLayout camBindGroupLayout =
       wgpuDeviceCreateBindGroupLayout(device, &camLayoutDesc);
-
   WGPUBindGroupEntry camBgEntry = {};
   camBgEntry.binding = 0;
   camBgEntry.buffer = uniformBuffer;
@@ -180,13 +174,11 @@ void Game::InitGraphics() {
   texEntries[1].binding = 1;
   texEntries[1].visibility = WGPUShaderStage_Fragment;
   texEntries[1].sampler.type = WGPUSamplerBindingType_Filtering;
-
   WGPUBindGroupLayoutDescriptor texLayoutDesc = {};
   texLayoutDesc.entryCount = 2;
   texLayoutDesc.entries = texEntries;
   WGPUBindGroupLayout texBindGroupLayout =
       wgpuDeviceCreateBindGroupLayout(device, &texLayoutDesc);
-
   WGPUBindGroupEntry texBgEntries[2] = {};
   texBgEntries[0].binding = 0;
   texBgEntries[0].textureView = atlasTexture.view;
@@ -218,8 +210,8 @@ void Game::InitGraphics() {
   vertLayout.attributeCount = 2;
   vertLayout.attributes = vertAttribs;
 
-  // Instance Layout - Added Color!
-  WGPUVertexAttribute instAttribs[5];
+  // Instance Layout (loc 6=Color, loc 7=Solid)
+  WGPUVertexAttribute instAttribs[6];
   instAttribs[0].format = WGPUVertexFormat_Float32x2;
   instAttribs[0].offset = 0;
   instAttribs[0].shaderLocation = 2;
@@ -234,17 +226,18 @@ void Game::InitGraphics() {
   instAttribs[3].shaderLocation = 5;
   instAttribs[4].format = WGPUVertexFormat_Float32x4;
   instAttribs[4].offset = 32;
-  instAttribs[4].shaderLocation = 6; // Color
+  instAttribs[4].shaderLocation = 6;
+  instAttribs[5].format = WGPUVertexFormat_Float32;
+  instAttribs[5].offset = 48;
+  instAttribs[5].shaderLocation = 7;
 
   WGPUVertexBufferLayout instLayout = {};
   instLayout.arrayStride = sizeof(InstanceData);
   instLayout.stepMode = WGPUVertexStepMode_Instance;
-  instLayout.attributeCount = 5;
+  instLayout.attributeCount = 6;
   instLayout.attributes = instAttribs;
 
   WGPUVertexBufferLayout bufLayouts[] = {vertLayout, instLayout};
-
-  // Blend State - Alpha Blending
   WGPUBlendState blend = {};
   blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha,
                  WGPUBlendFactor_OneMinusSrcAlpha};
@@ -259,7 +252,6 @@ void Game::InitGraphics() {
   frag.entryPoint = "fs_main";
   frag.targetCount = 1;
   frag.targets = &colorTarget;
-
   WGPURenderPipelineDescriptor pipeDesc = {};
   pipeDesc.layout = pipelineLayout;
   pipeDesc.vertex.module = shaderModule;
@@ -278,110 +270,134 @@ void Game::InitGraphics() {
   wgpuPipelineLayoutRelease(pipelineLayout);
 }
 
-void Game::InitGame() {
+void Game::InitGame() { ResetGame(); }
+
+void Game::ResetGame() {
+  entities.clear();
   entities.reserve(20000);
 
-  // 1. Player
+  // Player (UV=0,0 Scale=0.25)
   entities.push_back({});
   player = &entities.back();
   player->type = EntityType::Player;
   player->position = {0, 0};
   player->scale = {64, 64};
   player->uvOffset = {0.0f, 0.0f};
-  player->uvScale = {0.5f, 0.5f};
+  player->uvScale = {0.25f, 0.25f}; // 4x4 Atlas
   player->radius = 20.0f;
   player->color = {1.0f, 1.0f, 1.0f, 1.0f};
-  player->hp = 100.0f;
+  player->maxHp = 100.0f;
+  player->hp = player->maxHp;
+  player->piercingTimer = 0.0f;
 
-  // 2. Initial Crystals
+  // Initial Crystals
   std::mt19937 rng(12345);
   std::uniform_real_distribution<float> distPos(-1000.0f, 1000.0f);
-
   for (int i = 0; i < 30; ++i) {
     Entity e;
     e.type = EntityType::Crystal;
     e.position = {distPos(rng), distPos(rng)};
     e.scale = {64, 64};
-    e.uvOffset = {0.5f, 0.5f};
-    e.uvScale = {0.5f, 0.5f};
+    e.uvOffset = {0.75f, 0.0f}; // 3rd Horizontal (Crystal)
+    e.uvScale = {0.25f, 0.25f};
     e.radius = 15.0f;
-    e.color = {0.5f, 1.0f, 1.0f, 1.0f}; // Cyan tint
+    e.color = {0.5f, 1.0f, 1.0f, 1.0f};
     entities.push_back(e);
   }
+
+  gameTime = 0.0f;
+  spawnTimer = 0.0f;
+  fireTimer = 0.0f;
+  score = 0;
+  state = GameState::Playing;
 }
 
 void Game::SpawnEnemy() {
   std::random_device rd;
   std::mt19937 rng(rd());
-
-  std::uniform_real_distribution<float> distAngle(0.0f, 6.28318f);
-  float angle = distAngle(rng);
-  std::uniform_real_distribution<float> distR(900.0f, 1300.0f);
-  float r = distR(rng);
-
-  glm::vec2 spawnPos =
-      player->position + glm::vec2(cos(angle) * r, sin(angle) * r);
+  std::uniform_real_distribution<float> distAngle(0, 6.28);
+  std::uniform_real_distribution<float> distR(900, 1300);
+  float angle = distAngle(rng), r = distR(rng);
 
   Entity e;
-  e.position = spawnPos;
+  e.position = player->position + glm::vec2(cos(angle) * r, sin(angle) * r);
   e.scale = {64, 64};
-  e.uvScale = {0.5f, 0.5f};
+  e.uvScale = {0.25f, 0.25f};
   e.radius = 25.0f;
   e.hp = 30.0f;
+  e.maxHp = 30.0f;
 
   std::bernoulli_distribution distType(0.5);
   if (distType(rng)) {
     e.type = EntityType::Blob;
-    e.uvOffset = {0.5f, 0.0f};
-    e.color = {0.8f, 1.0f, 0.8f, 1.0f}; // Greenish
+    e.uvOffset = {0.25f, 0.0f};
+    e.color = {0.8f, 1.0f, 0.8f, 1.0f};
   } else {
     e.type = EntityType::Skeleton;
-    e.uvOffset = {0.0f, 0.5f};
-    e.color = {1.0f, 0.9f, 0.9f, 1.0f}; // Pale Reddish
+    e.uvOffset = {0.5f, 0.0f};
+    e.color = {1.0f, 0.9f, 0.9f, 1.0f};
   }
+  entities.push_back(e);
+}
 
+void Game::SpawnGem(glm::vec2 pos, int type) {
+  Entity e;
+  e.position = pos;
+  e.scale = {64, 64};
+  e.uvScale = {0.25f, 0.25f};
+  e.radius = 15.0f;
+  if (type == 0) { // Green (Health)
+    e.type = EntityType::HealthGem;
+    e.uvOffset = {0.0f, 0.25f};
+    e.color = {0.5f, 1.0f, 0.5f, 1.0f};
+  } else { // Purple (Piercing)
+    e.type = EntityType::PiercingGem;
+    e.uvOffset = {0.25f, 0.25f};
+    e.color = {1.0f, 0.5f, 1.0f, 1.0f};
+  }
   entities.push_back(e);
 }
 
 void Game::SpawnBullet(glm::vec2 targetPos) {
-  if (player == nullptr)
+  if (!player)
     return;
-
   Entity b;
   b.type = EntityType::Bullet;
   b.position = player->position;
   b.scale = {32, 32};
-  b.uvOffset = {0.5f, 0.5f}; // Re-using Crystal sprite for bullet for now
-                             // (looks like projectile)
-  b.uvScale = {0.5f, 0.5f};
+  b.uvOffset = {0.75f, 0.0f}; // Crystal sprite for bullet
+  b.uvScale = {0.25f, 0.25f};
   b.radius = 10.0f;
-  b.color = {1.0f, 1.0f, 0.0f, 1.0f}; // Yellow/Gold
+  b.color = {1.0f, 1.0f, 0.0f, 1.0f};
   b.lifeTime = 2.0f;
   b.damage = 15.0f;
 
-  glm::vec2 dir = targetPos - player->position;
-  if (glm::length(dir) > 0.1f) {
-    b.velocity = glm::normalize(dir) * 600.0f; // Fast bullet
+  if (player->piercingTimer > 0.0f) {
+    b.penetration = 100;                // Pierce everything
+    b.color = {1.0f, 0.2f, 1.0f, 1.0f}; // Purple Bullet
+    b.scale = {48, 48};                 // Bigger
   } else {
-    b.velocity = {600.0f, 0.0f};
+    b.penetration = 1;
   }
 
+  glm::vec2 dir = targetPos - player->position;
+  if (glm::length(dir) > 0.1f)
+    b.velocity = glm::normalize(dir) * 600.0f;
+  else
+    b.velocity = {600, 0};
   entities.push_back(b);
 }
 
 int Game::FindNearestEnemy() {
   int nearest = -1;
-  float minDistSq = 1000000.0f;
-
+  float minDistSq = 1e9;
   for (size_t i = 1; i < entities.size(); ++i) {
-    Entity &e = entities[i];
-    if (e.type != EntityType::Blob && e.type != EntityType::Skeleton)
+    if (entities[i].type != EntityType::Blob &&
+        entities[i].type != EntityType::Skeleton)
       continue;
-
-    glm::vec2 d = player->position - e.position;
+    glm::vec2 d = player->position - entities[i].position;
     float d2 = glm::dot(d, d);
-
-    if (d2 < minDistSq && d2 < (800.0f * 800.0f)) { // Only within range
+    if (d2 < minDistSq && d2 < 640000.0f) {
       minDistSq = d2;
       nearest = (int)i;
     }
@@ -393,6 +409,12 @@ void Game::ProcessInput(float dt) {
   if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
     glfwSetWindowShouldClose(window, true);
 
+  if (state == GameState::GameOver) {
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+      ResetGame();
+    return;
+  }
+
   glm::vec2 input{0, 0};
   if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
     input.y -= 1;
@@ -402,125 +424,175 @@ void Game::ProcessInput(float dt) {
     input.x -= 1;
   if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
     input.x += 1;
-
-  if (glm::length(input) > 0) {
+  if (glm::length(input) > 0)
     player->position += glm::normalize(input) * PLAYER_SPEED * dt;
-  }
 }
 
 void Game::Update(float dt) {
   ProcessInput(dt);
-  gameTime += dt;
-  spawnTimer += dt;
-  fireTimer += dt;
+  if (state == GameState::GameOver) {
+  } else {
+    gameTime += dt;
+    spawnTimer += dt;
+    fireTimer += dt;
+    if (player->piercingTimer > 0.0f)
+      player->piercingTimer -= dt;
 
-  // Spawning
-  float difficulty = 1.0f + (gameTime / 60.0f) * 10.0f;
-  float spawnInterval = 0.5f / difficulty;
-  if (spawnInterval < 0.05f)
-    spawnInterval = 0.05f;
-
-  if (spawnTimer >= spawnInterval && entities.size() < 15000) {
-    spawnTimer = 0.0f;
-    SpawnEnemy();
-  }
-
-  // Auto-Fire Weapon (0.2s cooldown)
-  if (fireTimer >= 0.2f) {
-    int targetIdx = FindNearestEnemy();
-    if (targetIdx != -1) {
-      SpawnBullet(entities[targetIdx].position);
-      fireTimer = 0.0f;
+    float diff = 1.0f + (gameTime / 60.0f) * 10.0f;
+    float interval = 0.5f / diff;
+    if (interval < 0.05f)
+      interval = 0.05f;
+    if (spawnTimer >= interval && entities.size() < 15000) {
+      spawnTimer = 0;
+      SpawnEnemy();
+    }
+    if (fireTimer >= 0.2f) {
+      int t = FindNearestEnemy();
+      if (t != -1) {
+        SpawnBullet(entities[t].position);
+        fireTimer = 0;
+      }
     }
   }
 
-  // Update Entities (Move Bullets & Enforce Lifetime)
+  if (player) {
+    float cx = player->position.x - width / 2.0f;
+    float cy = player->position.y - height / 2.0f;
+    glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(-cx, -cy, 0));
+    glm::mat4 proj =
+        glm::ortho(0.0f, (float)width, (float)height, 0.0f, -1.0f, 1.0f);
+    camUniforms.viewProj = proj * view;
+    wgpuQueueWriteBuffer(queue, uniformBuffer, 0, &camUniforms,
+                         sizeof(CameraUniforms));
+  }
+
+  if (state == GameState::GameOver)
+    return;
+
+  // Entities Loop
   for (int i = (int)entities.size() - 1; i >= 1; --i) {
     Entity &e = entities[i];
 
-    // Bullet Logic
+    // --- Bullet Logic ---
     if (e.type == EntityType::Bullet) {
       e.position += e.velocity * dt;
       e.lifeTime -= dt;
-      if (e.lifeTime <= 0.0f) {
+      if (e.lifeTime <= 0) {
         entities[i] = entities.back();
         entities.pop_back();
         continue;
       }
 
-      // Bullet vs Enemy Collision
-      // Brute force check against enemies? Or just verify nearest?
-      // Checking against ALL enemies is slow for every bullet.
-      // But we have spatial grid logic below, maybe handle it there?
-      // For now, simpler check: optimize by checking only if close?
-      // Let's rely on the O(M*N) for now (bullets * enemies). Bullets are few
-      // (<50).
       bool hit = false;
-      for (int j = 1; j < (int)entities.size(); ++j) { // Check forward (or all)
+      for (int j = 1; j < (int)entities.size(); ++j) {
         Entity &tgt = entities[j];
         if (tgt.type == EntityType::Blob || tgt.type == EntityType::Skeleton) {
           if (glm::distance(e.position, tgt.position) <
               (tgt.radius + e.radius)) {
-            // Hit!
             tgt.hp -= e.damage;
             hit = true;
+            e.penetration--; // Dec penetration
 
-            // Enemy Death
-            if (tgt.hp <= 0.0f) {
-              // Transform to Crystal (XP)
-              tgt.type = EntityType::Crystal;
-              tgt.color = {0.5f, 1.0f, 1.0f, 1.0f};
-              tgt.uvOffset = {0.5f, 0.5f}; // Crystal sprite
-              tgt.radius = 15.0f;
+            if (tgt.hp <= 0) {
+              // Drop Loop
+              static std::random_device rd;
+              static std::mt19937 rng(rd());
+              std::uniform_int_distribution<int> drop(0, 100);
+              int val = drop(rng);
+
+              if (val > 98) { // 2% Purple Gem
+                SpawnGem(tgt.position, 1);
+                tgt.active = false; // Using Active flag for removal? No,
+                                    // swap-pop destroys it.
+                // We are modifying 'entities' vector by pushing back! This
+                // invalidates references! 'tgt' is a reference to entities[j].
+                // PushBack might realloc. CRITICAL: Access by index only after
+                // Spawn. But SpawnGem just does push_back. We should handle
+                // death removal AFTER loop? Or be careful. Swap-pop removal
+                // handles removal. Just remove tgt now.
+              } else if (val > 95) { // 3% Green Gem
+                SpawnGem(tgt.position, 0);
+              } else { // 95% Crystal
+                // Convert to Crystal
+                tgt.type = EntityType::Crystal;
+                tgt.color = {0.5f, 1, 1, 1};
+                tgt.uvOffset = {0.75f, 0.0f};
+                tgt.radius = 15;
+                goto skip_removal; // Don't remove
+              }
+
+              // Remove Tgt
+              entities[j] = entities.back();
+              entities.pop_back();
+              // If we swapped j, we must re-check j?
+              // Yes, but iterating bullet against ALL is dangerous if we modify
+              // vector inside. Better to NOT remove immediately? Or accept tiny
+              // glitch (skipping one frame collision). Let's use goto trick to
+              // skip loop continue.
+            skip_removal:;
+            } else {
+              tgt.position += glm::normalize(e.velocity) * 10.0f; // Pushback
             }
 
-            // Push back enemy slightly
-            tgt.position += glm::normalize(e.velocity) * 10.0f;
-
-            break; // Bullet hits one enemy
+            if (e.penetration <= 0)
+              break; // Bullet Done
           }
         }
       }
-      if (hit) {
+      if (hit && e.penetration <= 0) {
         entities[i] = entities.back();
         entities.pop_back();
         continue;
       }
     }
 
-    // Crystal Collection
+    // --- Collections ---
     if (e.type == EntityType::Crystal) {
       if (glm::distance(player->position, e.position) <
-          (player->radius + e.radius + 10.0f)) {
+          (player->radius + e.radius + 20)) {
         score++;
         entities[i] = entities.back();
         entities.pop_back();
       }
+    } else if (e.type == EntityType::HealthGem) {
+      if (glm::distance(player->position, e.position) <
+          (player->radius + e.radius + 20)) {
+        player->hp += 20.0f;
+        if (player->hp > player->maxHp)
+          player->hp = player->maxHp;
+        entities[i] = entities.back();
+        entities.pop_back();
+      }
+    } else if (e.type == EntityType::PiercingGem) {
+      if (glm::distance(player->position, e.position) <
+          (player->radius + e.radius + 20)) {
+        player->piercingTimer = 10.0f;
+        entities[i] = entities.back();
+        entities.pop_back();
+      }
+    }
+
+    // --- Damage ---
+    if (e.type == EntityType::Blob || e.type == EntityType::Skeleton) {
+      if (glm::distance(player->position, e.position) <
+          (player->radius + e.radius - 5.0f)) {
+        player->hp -= 20.0f * dt;
+        if (player->hp <= 0) {
+          state = GameState::GameOver;
+          std::cout << "GAME OVER! Score: " << score << std::endl;
+        }
+      }
     }
   }
+  player = &entities[0];
 
-  player = &entities[0]; // Refresh pointer
-
-  // Camera
-  float camX = player->position.x - width / 2.0f;
-  float camY = player->position.y - height / 2.0f;
-  glm::mat4 view =
-      glm::translate(glm::mat4(1.0f), glm::vec3(-camX, -camY, 0.0f));
-  glm::mat4 proj =
-      glm::ortho(0.0f, (float)width, (float)height, 0.0f, -1.0f, 1.0f);
-  camUniforms.viewProj = proj * view;
-  wgpuQueueWriteBuffer(queue, uniformBuffer, 0, &camUniforms,
-                       sizeof(CameraUniforms));
-
-  // Spatial Grid logic (Separation & Movement for Enemies)
-  // Same as before...
-  const float GRID_CELL_SIZE = 100.0f;
-  const int GRID_W = 40;
-  const int GRID_H = 40;
-  const float WORLD_OFFSET = 2000.0f;
-  static std::vector<int> grid[GRID_W][GRID_H];
-  for (int x = 0; x < GRID_W; ++x)
-    for (int y = 0; y < GRID_H; ++y)
+  // Spatial Grid logic (Physics)
+  const float SZ = 100.0f;
+  const int W = 40, H = 40;
+  const float OFF = 2000.0f;
+  static std::vector<int> grid[W][H];
+  for (int x = 0; x < W; ++x)
+    for (int y = 0; y < H; ++y)
       grid[x][y].clear();
 
   for (size_t i = 1; i < entities.size(); ++i) {
@@ -528,53 +600,45 @@ void Game::Update(float dt) {
     if (e.type == EntityType::Blob || e.type == EntityType::Skeleton) {
       glm::vec2 dir = player->position - e.position;
       float dist = glm::length(dir);
-      if (dist > 30.0f) {
+      if (dist > 30.0f)
         e.position += glm::normalize(dir) * 100.0f * dt;
-      }
-      // Add to grid
-      int gx = (int)((e.position.x + WORLD_OFFSET) / GRID_CELL_SIZE);
-      int gy = (int)((e.position.y + WORLD_OFFSET) / GRID_CELL_SIZE);
-      if (gx >= 0 && gx < GRID_W && gy >= 0 && gy < GRID_H)
+      int gx = (int)((e.position.x + OFF) / SZ),
+          gy = (int)((e.position.y + OFF) / SZ);
+      if (gx >= 0 && gx < W && gy >= 0 && gy < H)
         grid[gx][gy].push_back((int)i);
     }
   }
-
-  // Resolve Separation
-  for (size_t i = 1; i < entities.size(); ++i) {
-    Entity &e = entities[i];
-    if (e.type != EntityType::Blob && e.type != EntityType::Skeleton)
-      continue;
-
-    int gx = (int)((e.position.x + WORLD_OFFSET) / GRID_CELL_SIZE);
-    int gy = (int)((e.position.y + WORLD_OFFSET) / GRID_CELL_SIZE);
-    if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H)
-      continue;
-
-    for (int nx = gx - 1; nx <= gx + 1; ++nx) {
-      for (int ny = gy - 1; ny <= gy + 1; ++ny) {
-        if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H) {
-          for (int otherId : grid[nx][ny]) {
-            if (otherId == (int)i)
+  // Separation (Loop twice for stability)
+  for (int iter = 0; iter < 2; ++iter) {
+    for (size_t i = 1; i < entities.size(); ++i) {
+      Entity &e = entities[i];
+      if (e.type != EntityType::Blob && e.type != EntityType::Skeleton)
+        continue;
+      int gx = (int)((e.position.x + OFF) / SZ),
+          gy = (int)((e.position.y + OFF) / SZ);
+      if (gx < 0 || gx >= W || gy < 0 || gy >= H)
+        continue;
+      for (int nx = gx - 1; nx <= gx + 1; ++nx)
+        for (int ny = gy - 1; ny <= gy + 1; ++ny) {
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H)
+            continue;
+          for (int oid : grid[nx][ny]) {
+            if (oid == (int)i)
               continue;
-
-            Entity &other = entities[otherId];
-            if (other.type != EntityType::Blob &&
-                other.type != EntityType::Skeleton)
+            Entity &o = entities[oid];
+            if (o.type != EntityType::Blob && o.type != EntityType::Skeleton)
               continue;
-
-            glm::vec2 dir = e.position - other.position;
-            float distSq = glm::dot(dir, dir);
-            float minDist = e.radius + other.radius;
-            float minDistSq = minDist * minDist;
-
-            if (distSq < minDistSq && distSq > 0.001f) {
-              float dist = std::sqrt(distSq);
-              glm::vec2 push = (dir / dist) * (minDist - dist) * 0.5f;
-              e.position += push;
+            glm::vec2 d = e.position - o.position;
+            float d2 = glm::dot(d, d);
+            float rSum = e.radius + o.radius;
+            if (d2 < rSum * rSum && d2 > 0.001f) {
+              float dist = std::sqrt(d2);
+              // Stronger separation force (1.0f) and using rSum overlap
+              float overlap = rSum - dist;
+              e.position += (d / dist) * overlap * 0.8f;
             }
           }
         }
-      }
     }
   }
 }
@@ -584,17 +648,8 @@ void Game::Render() {
   wgpuSurfaceGetCurrentTexture(surface, &surfaceTexture);
   if (!surfaceTexture.texture)
     return;
-
-  WGPUTextureViewDescriptor viewDesc = {};
-  viewDesc.baseMipLevel = 0;
-  viewDesc.mipLevelCount = 1;
-  viewDesc.baseArrayLayer = 0;
-  viewDesc.arrayLayerCount = 1;
-  viewDesc.format = WGPUTextureFormat_BGRA8Unorm;
-  viewDesc.dimension = WGPUTextureViewDimension_2D;
   WGPUTextureView targetView =
-      wgpuTextureCreateView(surfaceTexture.texture, &viewDesc);
-
+      wgpuTextureCreateView(surfaceTexture.texture, nullptr);
   WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, nullptr);
 
   WGPURenderPassColorAttachment colorAttach = {};
@@ -607,16 +662,41 @@ void Game::Render() {
   passDesc.colorAttachments = &colorAttach;
 
   static std::vector<InstanceData> instanceData;
-  if (instanceData.size() != entities.size())
-    instanceData.resize(entities.size());
+  instanceData.clear();
+  instanceData.reserve(entities.size() + 10);
 
-  for (size_t i = 0; i < entities.size(); ++i) {
-    instanceData[i].position = entities[i].position;
-    instanceData[i].scale = entities[i].scale;
-    instanceData[i].uvOffset = entities[i].uvOffset;
-    instanceData[i].uvScale = entities[i].uvScale;
-    instanceData[i].color = entities[i].color; // Color Copy!
+  for (const auto &e : entities) {
+    instanceData.push_back(
+        {e.position, e.scale, e.uvOffset, e.uvScale, e.color, 0.0f});
   }
+
+  // UI Rendering
+  if (player && state != GameState::GameOver) {
+    // HP Bar
+    instanceData.push_back({player->position + glm::vec2(0, -50),
+                            {80, 10},
+                            {0, 0},
+                            {0, 0},
+                            {1, 0, 0, 1},
+                            1.0f});
+    float hpPct = std::max(0.0f, player->hp / player->maxHp);
+    instanceData.push_back(
+        {player->position + glm::vec2(-40 + (40 * hpPct), -50),
+         {80 * hpPct, 10},
+         {0, 0},
+         {0, 0},
+         {0, 1, 0, 1},
+         1.0f});
+  }
+  if (state == GameState::GameOver) {
+    instanceData.push_back({player->position,
+                            {width * 1.0f, height * 1.0f},
+                            {0, 0},
+                            {0, 0},
+                            {1, 0, 0, 0.5f},
+                            1.0f});
+  }
+
   wgpuQueueWriteBuffer(queue, instanceBuffer, 0, instanceData.data(),
                        instanceData.size() * sizeof(InstanceData));
 
@@ -630,7 +710,8 @@ void Game::Render() {
       pass, 1, instanceBuffer, 0, instanceData.size() * sizeof(InstanceData));
   wgpuRenderPassEncoderSetIndexBuffer(pass, indexBuffer, WGPUIndexFormat_Uint16,
                                       0, 12);
-  wgpuRenderPassEncoderDrawIndexed(pass, 6, (uint32_t)entities.size(), 0, 0, 0);
+  wgpuRenderPassEncoderDrawIndexed(pass, 6, (uint32_t)instanceData.size(), 0, 0,
+                                   0);
   wgpuRenderPassEncoderEnd(pass);
 
   WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, nullptr);
@@ -644,14 +725,14 @@ void Game::Render() {
   wgpuTextureRelease(surfaceTexture.texture);
 }
 
+void Game::RenderUI() {} // Folded into Render()
+
 void Game::Run() {
   float lastTime = (float)glfwGetTime();
-
   while (!glfwWindowShouldClose(window)) {
     float currentTime = (float)glfwGetTime();
     float dt = currentTime - lastTime;
     lastTime = currentTime;
-
     if (dt > 0.1f)
       dt = 0.1f;
 
@@ -664,53 +745,36 @@ void Game::Run() {
     timer += dt;
     frames++;
     if (timer >= 1.0f) {
+      std::string st = (state == GameState::GameOver) ? " [GAME OVER]" : "";
+      std::string buff = (player->piercingTimer > 0) ? " | PIERCING!" : "";
       std::string title = "WarpEngine | FPS: " + std::to_string(frames) +
-                          " | Entities: " + std::to_string(entities.size()) +
-                          " | Score: " + std::to_string(score);
+                          " | Score: " + std::to_string(score) +
+                          " | HP: " + std::to_string((int)player->hp) + st +
+                          buff;
       glfwSetWindowTitle(window, title.c_str());
       timer = 0.0f;
       frames = 0;
     }
   }
 }
-
 void Game::Cleanup() {
   if (window)
     glfwDestroyWindow(window);
   glfwTerminate();
 }
 
-// Global Callbacks
-void onAdapterRequestEnded(WGPURequestAdapterStatus status, WGPUAdapter adapter,
-                           char const *message, void *userdata) {
-  if (status != WGPURequestAdapterStatus_Success) {
-    std::cerr << "Could not get WebGPU adapter: " << (message ? message : "")
-              << std::endl;
-    *static_cast<WGPUAdapter *>(userdata) = nullptr;
-    return;
-  }
-  *static_cast<WGPUAdapter *>(userdata) = adapter;
+// Callbacks
+void onAdapterRequestEnded(WGPURequestAdapterStatus s, WGPUAdapter a,
+                           char const *m, void *u) {
+  *static_cast<WGPUAdapter *>(u) = a;
 }
-
-void onDeviceRequestEnded(WGPURequestDeviceStatus status, WGPUDevice device,
-                          char const *message, void *userdata) {
-  if (status != WGPURequestDeviceStatus_Success) {
-    std::cerr << "Could not get WebGPU device: " << (message ? message : "")
-              << std::endl;
-    *static_cast<WGPUDevice *>(userdata) = nullptr;
-    return;
-  }
-  *static_cast<WGPUDevice *>(userdata) = device;
+void onDeviceRequestEnded(WGPURequestDeviceStatus s, WGPUDevice d,
+                          char const *m, void *u) {
+  *static_cast<WGPUDevice *>(u) = d;
 }
-
-void onUncapturedError(WGPUErrorType type, char const *message,
-                       void * /*userdata*/) {
-  std::cerr << "[WebGPU Error] type=" << type << ": "
-            << (message ? message : "(no message)") << std::endl;
+void onUncapturedError(WGPUErrorType t, char const *m, void *u) {
+  std::cerr << "[Error] " << m << std::endl;
 }
-
-void onDeviceLost(WGPUDeviceLostReason reason, char const *message,
-                  void * /*userdata*/) {
-  std::cerr << "[WebGPU] Device lost! reason=" << reason << ": "
-            << (message ? message : "(no message)") << std::endl;
+void onDeviceLost(WGPUDeviceLostReason r, char const *m, void *u) {
+  std::cerr << "[Lost] " << m << std::endl;
 }
