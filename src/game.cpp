@@ -288,7 +288,7 @@ void Game::ResetGame() {
   dodging = false;
   dodgeTimeLeft = 0.0f;
   lastMoveDir = {1, 0};
-  state = GameState::Playing;
+  state = GameState::WeaponSelect;
 }
 
 void Game::SpawnEnemy(int enemyType) {
@@ -445,9 +445,125 @@ void Game::SpawnGem(glm::vec2 pos, int type) {
   entities.push_back(e);
 }
 
+// Central enemy death handler — drops crystals, corpses, gems, score
+void Game::HandleEnemyDeath(int idx) {
+  Entity &tgt = entities[idx];
+  glm::vec2 dpos = tgt.position;
+  EntityType origType = tgt.type;
+
+  perf.windowKills++;
+  perf.totalKills++;
+  audio.PlaySFX(SFXType::Hit);
+
+  if (origType == EntityType::SkeletonMage) {
+    score += 50;
+    for (int g = 0; g < 5; ++g)
+      SpawnGem(dpos + glm::vec2((g - 2) * 40.0f, 0), g % 2);
+    entities[idx] = entities.back();
+    entities.pop_back();
+  } else {
+    score += 1;
+    static std::random_device rd;
+    static std::mt19937 rng(rd());
+    int val = std::uniform_int_distribution<int>(0, 100)(rng);
+    if (val > 98) {
+      SpawnGem(dpos, 1);
+      entities[idx] = entities.back();
+      entities.pop_back();
+    } else if (val > 95) {
+      SpawnGem(dpos, 0);
+      entities[idx] = entities.back();
+      entities.pop_back();
+    } else {
+      // Drop crystal for XP
+      tgt.type = EntityType::Crystal;
+      tgt.scale = {64, 64};
+      tgt.colliderSize = {30, 30};
+      tgt.color = {0.5f, 1, 1, 1};
+      tgt.uvOffset = {0.75f, 0};
+      tgt.radius = 15;
+      // Also spawn background corpse
+      Entity corpse;
+      corpse.position = dpos;
+      corpse.scale = {48, 48};
+      corpse.uvScale = {0.25f, 0.25f};
+      corpse.radius = 0;
+      corpse.lifeTime = 5.0f;
+      if (origType == EntityType::Skeleton) {
+        corpse.type = EntityType::SkeletonCorpse;
+        corpse.uvOffset = {0.5f, 0.25f};
+        corpse.color = {0.8f, 0.8f, 0.8f, 0.6f};
+      } else {
+        corpse.type = EntityType::BlobCorpse;
+        corpse.uvOffset = {0.75f, 0.25f};
+        corpse.color = {0.6f, 0.9f, 0.6f, 0.6f};
+      }
+      entities.push_back(corpse);
+    }
+  }
+}
+
 void Game::SpawnBullet(glm::vec2 targetPos) {
   if (!player)
     return;
+
+  if (currentWeapon == WeaponType::Sword) {
+    // --- SWORD: melee arc swing ---
+    bool fullCircle = (player->piercingTimer > 0); // Power-up: 360° swing
+    Entity sw;
+    sw.type = EntityType::SwordSwing;
+    glm::vec2 sdir = targetPos - player->position;
+    glm::vec2 snorm =
+        (glm::length(sdir) > 0.1f) ? glm::normalize(sdir) : glm::vec2(1, 0);
+    if (fullCircle) {
+      sw.position = player->position; // Centered for 360
+      sw.scale = {200, 200};
+      sw.radius = 120;
+      sw.colliderSize = {200, 200};
+      sw.color = {1.0f, 0.4f, 1.0f, 0.7f}; // Purple glow
+      sw.uvOffset = {0.75f, 0.5f};         // Slash sprite from atlas
+      sw.uvScale = {0.25f, 0.25f};
+    } else {
+      sw.position = player->position + snorm * 60.0f;
+      sw.scale = {120, 60}; // Thin slash shape
+      sw.radius = 120;
+      sw.colliderSize = {120, 120};
+      sw.color = {0.8f, 0.9f, 1.0f, 0.7f};
+      sw.uvOffset = {0.75f, 0.5f}; // Slash sprite from atlas
+      sw.uvScale = {0.25f, 0.25f};
+    }
+    sw.lifeTime = 0.15f;
+    sw.damage = bulletDamage * 3;
+    sw.penetration = 999;
+    sw.velocity = snorm;
+    // For full circle, set angle to allow 360
+    sw.contactDamage = fullCircle ? 1.0f : 0.0f; // Reuse as flag
+    entities.push_back(sw);
+    return;
+  }
+
+  if (currentWeapon == WeaponType::Bazooka) {
+    // --- BAZOOKA: big slow explosive projectile ---
+    Entity b;
+    b.type = EntityType::Bullet;
+    b.position = player->position;
+    b.scale = {64, 64};
+    b.uvOffset = {0.75f, 0};
+    b.uvScale = {0.25f, 0.25f};
+    b.radius = 20;
+    b.colliderSize = {40, 40};
+    b.color = {1, 0.5f, 0.1f, 1}; // Orange
+    b.lifeTime = 3;
+    b.damage = bulletDamage * 4; // 4x damage
+    b.penetration = 1;           // Explodes on first hit
+    glm::vec2 dir = targetPos - player->position;
+    b.velocity = (glm::length(dir) > 0.1f) ? glm::normalize(dir) * 500.0f
+                                           : glm::vec2(500, 0);
+    entities.push_back(b);
+    return;
+  }
+
+  // --- MACHINE GUN: default ---
   Entity b;
   b.type = EntityType::Bullet;
   b.position = player->position;
@@ -581,6 +697,24 @@ void Game::ProcessInput(float dt) {
   if (state == GameState::GameOver) {
     if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
       ResetGame();
+    return;
+  }
+  if (state == GameState::WeaponSelect) {
+    if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
+      currentWeapon = WeaponType::MachineGun;
+      fireCooldown = 0.2f;
+      state = GameState::Playing;
+    }
+    if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
+      currentWeapon = WeaponType::Sword;
+      fireCooldown = 0.4f;
+      state = GameState::Playing;
+    }
+    if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
+      currentWeapon = WeaponType::Bazooka;
+      fireCooldown = 1.5f;
+      state = GameState::Playing;
+    }
     return;
   }
   if (state == GameState::LevelUp) {
@@ -723,6 +857,17 @@ void Game::Update(float dt) {
     int t = FindNearestEnemy();
     if (t != -1) {
       SpawnBullet(entities[t].position);
+      // Bazooka power-up: fire 2 extra rockets in spread
+      if (currentWeapon == WeaponType::Bazooka && player->piercingTimer > 0) {
+        glm::vec2 d = entities[t].position - player->position;
+        if (glm::length(d) > 0.1f) {
+          float a = atan2(d.y, d.x);
+          SpawnBullet(player->position +
+                      glm::vec2(cos(a + 0.25f), sin(a + 0.25f)) * 400.0f);
+          SpawnBullet(player->position +
+                      glm::vec2(cos(a - 0.25f), sin(a - 0.25f)) * 400.0f);
+        }
+      }
       fireTimer = 0;
       audio.PlaySFX(SFXType::Shoot);
     }
@@ -875,58 +1020,10 @@ void Game::Update(float dt) {
           perf.totalDmgDealt += dealt;
           e.penetration--;
           if (tgt.hp <= 0) {
-            perf.windowKills++;
-            perf.totalKills++;
-            audio.PlaySFX(SFXType::Hit);
-            glm::vec2 dpos = tgt.position;
-            if (tgt.type == EntityType::SkeletonMage) {
-              // Boss dies — big reward
-              score += 50;
-              for (int g = 0; g < 5; ++g)
-                SpawnGem(dpos + glm::vec2((g - 2) * 40.0f, 0), g % 2);
-              entities[j] = entities.back();
-              entities.pop_back();
-            } else {
-              static std::random_device rd;
-              static std::mt19937 rng(rd());
-              int val = std::uniform_int_distribution<int>(0, 100)(rng);
-              if (val > 98) {
-                SpawnGem(dpos, 1);
-                entities[j] = entities.back();
-                entities.pop_back();
-              } else if (val > 95) {
-                SpawnGem(dpos, 0);
-                entities[j] = entities.back();
-                entities.pop_back();
-              } else {
-                // Remember original type before converting
-                EntityType origType = tgt.type;
-                // Drop crystal for XP
-                tgt.type = EntityType::Crystal;
-                tgt.scale = {64, 64}; // Always standard size crystal
-                tgt.colliderSize = {30, 30};
-                tgt.color = {0.5f, 1, 1, 1};
-                tgt.uvOffset = {0.75f, 0};
-                tgt.radius = 15;
-                // Also spawn background corpse (bones/slime)
-                Entity corpse;
-                corpse.position = dpos;
-                corpse.scale = {48, 48};
-                corpse.uvScale = {0.25f, 0.25f};
-                corpse.radius = 0;      // No collision
-                corpse.lifeTime = 5.0f; // Disappears after 5s
-                if (origType == EntityType::Skeleton) {
-                  corpse.type = EntityType::SkeletonCorpse;
-                  corpse.uvOffset = {0.5f, 0.25f};
-                  corpse.color = {0.8f, 0.8f, 0.8f, 0.6f};
-                } else {
-                  corpse.type = EntityType::BlobCorpse;
-                  corpse.uvOffset = {0.75f, 0.25f};
-                  corpse.color = {0.6f, 0.9f, 0.6f, 0.6f};
-                }
-                entities.push_back(corpse);
-              }
-            }
+            HandleEnemyDeath(j);
+            if (j <= i)
+              --i;
+            --j;
           } else {
             // Only pushback for non-piercing bullets (piercing passes through)
             if (e.penetration <= 0)
@@ -937,9 +1034,115 @@ void Game::Update(float dt) {
         }
       }
       if (e.penetration <= 0) {
+        // Bazooka explosion on bullet death
+        if (currentWeapon == WeaponType::Bazooka) {
+          Entity exp;
+          exp.type = EntityType::Explosion;
+          exp.position = e.position;
+          exp.scale = {240, 240};
+          exp.uvOffset = {0, 0};
+          exp.uvScale = {0, 0};
+          exp.radius = 120;
+          exp.colliderSize = {240, 240};
+          exp.lifeTime = 0.3f;
+          exp.damage = e.damage; // Same damage as rocket
+          exp.color = {1, 0.6f, 0.1f, 0.8f};
+          exp.penetration = 999; // Flag: needs to deal damage
+          entities.push_back(exp);
+          audio.PlaySFX(SFXType::Hit);
+        }
         entities[i] = entities.back();
         entities.pop_back();
         continue;
+      }
+    }
+
+    // --- Sword Swing ---
+    if (e.type == EntityType::SwordSwing) {
+      e.lifeTime -= dt;
+      e.color.a = e.lifeTime / 0.15f * 0.7f; // Fade out
+      if (e.lifeTime <= 0) {
+        entities[i] = entities.back();
+        entities.pop_back();
+        continue;
+      }
+      // Damage all enemies in range
+      if (e.penetration > 0) {
+        bool fullCircle = (e.contactDamage > 0.5f); // Flag for 360 swing
+        float swingAngle = atan2(e.velocity.y, e.velocity.x);
+        for (int j = 1; j < (int)entities.size(); ++j) {
+          Entity &tgt = entities[j];
+          bool isEnemy = (tgt.type == EntityType::Blob ||
+                          tgt.type == EntityType::Skeleton ||
+                          tgt.type == EntityType::SkeletonMage);
+          if (!isEnemy)
+            continue;
+          float dist = glm::distance(e.position, tgt.position);
+          if (dist > e.radius)
+            continue;
+          glm::vec2 toE = tgt.position - e.position;
+          if (!fullCircle) {
+            // Check angle (120 degree arc)
+            float eAngle = atan2(toE.y, toE.x);
+            float diff = eAngle - swingAngle;
+            while (diff > 3.14159f)
+              diff -= 6.28318f;
+            while (diff < -3.14159f)
+              diff += 6.28318f;
+            if (std::abs(diff) > 1.047f)
+              continue;
+          }
+          // HIT!
+          float dealt = e.damage;
+          tgt.hp -= dealt;
+          perf.windowDmgDealt += dealt;
+          perf.totalDmgDealt += dealt;
+          // Knockback
+          if (dist > 0.1f)
+            tgt.position += glm::normalize(toE) * 30.0f;
+          if (tgt.hp <= 0) {
+            HandleEnemyDeath(j);
+            if (j <= i)
+              --i;
+            --j;
+          }
+        }
+        e.penetration = 0; // Prevent multi-hit per swing
+      }
+    }
+
+    // --- Explosion AoE ---
+    if (e.type == EntityType::Explosion) {
+      e.lifeTime -= dt;
+      e.color.a = (e.lifeTime / 0.3f) * 0.8f;
+      e.scale = glm::vec2(240) * (1.0f + (0.3f - e.lifeTime) * 2.0f); // Expand
+      if (e.lifeTime <= 0) {
+        entities[i] = entities.back();
+        entities.pop_back();
+        continue;
+      }
+      // Deal AoE damage once (on spawn frame)
+      if (e.penetration > 0) {
+        for (int j = 1; j < (int)entities.size(); ++j) {
+          Entity &tgt = entities[j];
+          bool isEnemy = (tgt.type == EntityType::Blob ||
+                          tgt.type == EntityType::Skeleton ||
+                          tgt.type == EntityType::SkeletonMage);
+          if (!isEnemy)
+            continue;
+          if (glm::distance(e.position, tgt.position) > e.radius)
+            continue;
+          tgt.hp -= e.damage;
+          perf.windowDmgDealt += e.damage;
+          perf.totalDmgDealt += e.damage;
+          if (tgt.hp <= 0) {
+            HandleEnemyDeath(j);
+            if (j <= i)
+              --i;
+            --j;
+          }
+        }
+        e.penetration = 0; // Only damage once
       }
     }
 
@@ -1077,11 +1280,14 @@ int Game::GetRenderLayer(EntityType t) const {
   case EntityType::Skeleton:
   case EntityType::SkeletonMage:
     return 2; // Enemies on top of pickups
+  case EntityType::SwordSwing:
+  case EntityType::Explosion:
+    return 3; // Effects above enemies
   case EntityType::Bullet:
   case EntityType::EnemyBullet:
-    return 3; // Bullets above everything
+    return 4; // Bullets above everything
   case EntityType::Player:
-    return 4; // Player always on top
+    return 5; // Player always on top
   default:
     return 1;
   }
@@ -1490,8 +1696,9 @@ void Game::Render() {
   });
   for (int idx : renderOrder) {
     const auto &e = entities[idx];
+    float solid = (e.type == EntityType::Explosion) ? 1.0f : 0.0f;
     spriteData.push_back(
-        {e.position, e.scale, e.uvOffset, e.uvScale, e.color, 0});
+        {e.position, e.scale, e.uvOffset, e.uvScale, e.color, solid});
   }
 
   // Player HP Bar
@@ -1583,10 +1790,20 @@ void Game::Render() {
              "HP:" + std::to_string((int)player->hp) + "/" +
                  std::to_string((int)player->maxHp),
              {0.3f, 1, 0.3f, 1}, 18);
-    if (player->piercingTimer > 0)
+    if (player->piercingTimer > 0) {
+      std::string pwrName = "PIERCING!";
+      glm::vec4 pwrColor = {1, 0.3f, 1, 1};
+      if (currentWeapon == WeaponType::Sword) {
+        pwrName = "WHIRLWIND!";
+        pwrColor = {0.5f, 0.8f, 1, 1};
+      } else if (currentWeapon == WeaponType::Bazooka) {
+        pwrName = "VOLLEY!";
+        pwrColor = {1, 0.5f, 0.2f, 1};
+      }
       DrawText(textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 85,
-               "PIERCING! " + std::to_string((int)player->piercingTimer) + "s",
-               {1, 0.3f, 1, 1}, 18);
+               pwrName + " " + std::to_string((int)player->piercingTimer) + "s",
+               pwrColor, 18);
+    }
     // Dodge indicator
     if (dodgeTimer >= dodgeCooldown)
       DrawText(textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 108,
@@ -1629,6 +1846,60 @@ void Game::Render() {
     DrawText(textData, cam.x - 100, cam.y + 20,
              "SCORE: " + std::to_string(score), {1, 1, 1, 1}, 24);
     DrawText(textData, cam.x - 80, cam.y + 60, "PRESS R", {1, 1, 0.5f, 1}, 24);
+  }
+  if (state == GameState::WeaponSelect) {
+    spriteData.push_back({{cam.x, cam.y},
+                          {(float)width, (float)height},
+                          {0, 0},
+                          {0, 0},
+                          {0.05f, 0.02f, 0.1f, 0.9f},
+                          1});
+    DrawText(textData, cam.x - 200, cam.y - 140, "CHOOSE WEAPON",
+             {1, 0.9f, 0.3f, 1}, 40);
+    // Machine Gun box
+    spriteData.push_back({{cam.x - 220, cam.y + 10},
+                          {180, 140},
+                          {0, 0},
+                          {0, 0},
+                          {0.15f, 0.15f, 0.2f, 0.9f},
+                          1});
+    DrawText(textData, cam.x - 295, cam.y - 40, "[1] MACHINE", {1, 1, 0.3f, 1},
+             20);
+    DrawText(textData, cam.x - 295, cam.y - 10, "GUN", {1, 1, 0.3f, 1}, 20);
+    DrawText(textData, cam.x - 295, cam.y + 20, "Fast fire",
+             {0.7f, 0.7f, 0.7f, 1}, 16);
+    DrawText(textData, cam.x - 295, cam.y + 45, "DMG:15", {0.5f, 0.8f, 0.5f, 1},
+             16);
+    // Sword box
+    spriteData.push_back({{cam.x, cam.y + 10},
+                          {180, 140},
+                          {0, 0},
+                          {0, 0},
+                          {0.15f, 0.15f, 0.2f, 0.9f},
+                          1});
+    DrawText(textData, cam.x - 75, cam.y - 40, "[2] SWORD", {0.5f, 0.8f, 1, 1},
+             20);
+    DrawText(textData, cam.x - 75, cam.y - 10, "Melee arc",
+             {0.7f, 0.7f, 0.7f, 1}, 16);
+    DrawText(textData, cam.x - 75, cam.y + 15, "3x DMG", {0.7f, 0.7f, 0.7f, 1},
+             16);
+    DrawText(textData, cam.x - 75, cam.y + 45, "DMG:45", {0.5f, 0.8f, 0.5f, 1},
+             16);
+    // Bazooka box
+    spriteData.push_back({{cam.x + 220, cam.y + 10},
+                          {180, 140},
+                          {0, 0},
+                          {0, 0},
+                          {0.15f, 0.15f, 0.2f, 0.9f},
+                          1});
+    DrawText(textData, cam.x + 145, cam.y - 40, "[3] BAZOOKA",
+             {1, 0.5f, 0.2f, 1}, 20);
+    DrawText(textData, cam.x + 145, cam.y - 10, "Explosive",
+             {0.7f, 0.7f, 0.7f, 1}, 16);
+    DrawText(textData, cam.x + 145, cam.y + 15, "AoE blast",
+             {0.7f, 0.7f, 0.7f, 1}, 16);
+    DrawText(textData, cam.x + 145, cam.y + 45, "DMG:60", {0.5f, 0.8f, 0.5f, 1},
+             16);
   }
   if (state == GameState::LevelUp) {
     DrawText(textData, cam.x - 100, cam.y - 100, "LEVEL UP!", {1, 1, 0.2f, 1},

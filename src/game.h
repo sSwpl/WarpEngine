@@ -19,11 +19,16 @@ enum class EntityType {
   SkeletonMage,   // Boss
   EnemyBullet,    // Boss projectile
   SkeletonCorpse, // Dead skeleton (bones)
-  BlobCorpse      // Dead blob (slime)
+  BlobCorpse,     // Dead blob (slime)
+  SwordSwing,     // Melee arc attack
+  Explosion       // Bazooka AoE
 };
 
+// Weapon Types
+enum class WeaponType { MachineGun, Sword, Bazooka };
+
 // Game States
-enum class GameState { Playing, LevelUp, GameOver };
+enum class GameState { WeaponSelect, Playing, LevelUp, GameOver };
 
 // Upgrade Types
 enum class UpgradeType { MaxHP, Damage, FireRate, Speed, Penetration };
@@ -169,6 +174,7 @@ private:
   void SpawnBullet(glm::vec2 targetPos);
   void SpawnEnemyBullet(glm::vec2 from, glm::vec2 target);
   void SpawnGem(glm::vec2 pos, int type);
+  void HandleEnemyDeath(int entityIdx); // Crystal/corpse drops
   int FindNearestEnemy();
   bool CheckCollisionAABB(const Entity &a, const Entity &b);
 
@@ -238,6 +244,7 @@ private:
   float playerSpeed = 300.0f;
   float bulletDamage = 15.0f;
   int bulletPenetration = 1;
+  WeaponType currentWeapon = WeaponType::MachineGun;
 
   // Wave system (4 waves + endless)
   int currentWave = 0;

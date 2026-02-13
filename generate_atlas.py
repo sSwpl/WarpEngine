@@ -58,6 +58,36 @@ def draw_slime(draw, x, y):
     draw.ellipse([x+14, y+34, x+50, y+48], fill=(140, 200, 140, 220))
     draw.ellipse([x+20, y+24, x+36, y+38], fill=(160, 210, 160, 180))
 
+def draw_machinegun(draw, x, y):
+    # Machine gun icon
+    draw.rectangle([x+12, y+28, x+52, y+36], fill=(200, 200, 200, 255)) # Barrel
+    draw.rectangle([x+8, y+24, x+28, y+40], fill=(180, 180, 180, 255))  # Body
+    draw.rectangle([x+14, y+40, x+22, y+52], fill=(160, 160, 160, 255)) # Grip
+    draw.rectangle([x+24, y+40, x+30, y+48], fill=(140, 140, 140, 255)) # Magazine
+    draw.ellipse([x+48, y+26, x+56, y+38], fill=(255, 200, 50, 255))    # Muzzle flash
+
+def draw_sword(draw, x, y):
+    # Sword icon
+    draw.line([x+10, y+54, x+50, y+10], fill=(220, 230, 255, 255), width=4)  # Blade
+    draw.line([x+10, y+54, x+50, y+10], fill=(255, 255, 255, 255), width=2)  # Edge
+    draw.rectangle([x+16, y+38, x+34, y+42], fill=(200, 170, 50, 255))       # Guard
+    draw.line([x+10, y+54, x+14, y+60], fill=(140, 100, 40, 255), width=3)   # Handle
+
+def draw_bazooka(draw, x, y):
+    # Bazooka/rocket launcher icon
+    draw.rectangle([x+8, y+26, x+52, y+38], fill=(100, 120, 100, 255))   # Tube
+    draw.ellipse([x+4, y+24, x+14, y+40], fill=(80, 100, 80, 255))       # Back opening
+    draw.rectangle([x+46, y+22, x+56, y+42], fill=(120, 140, 120, 255))  # Front
+    draw.rectangle([x+20, y+38, x+28, y+52], fill=(100, 100, 100, 255))  # Grip
+    draw.polygon([(x+56, y+28), (x+62, y+24), (x+62, y+40), (x+56, y+36)], fill=(255, 100, 50, 255)) # Rocket tip
+
+def draw_sword_slash(draw, x, y):
+    # Curved sword slash arc - crescent shape
+    # Outer arc
+    draw.arc([x+2, y+2, x+62, y+62], start=200, end=340, fill=(255, 255, 255, 255), width=6)
+    draw.arc([x+6, y+6, x+58, y+58], start=210, end=330, fill=(255, 255, 255, 200), width=4)
+    draw.arc([x+10, y+10, x+54, y+54], start=220, end=320, fill=(255, 255, 255, 150), width=3)
+
 draw = ImageDraw.Draw(atlas)
 
 # Row 1
@@ -71,6 +101,12 @@ draw_green_gem(draw, 0, 64)   # (0, 1)
 draw_purple_gem(draw, 64, 64) # (1, 1)
 draw_bones(draw, 128, 64)     # (2, 1) - Skeleton corpse
 draw_slime(draw, 192, 64)     # (3, 1) - Blob corpse
+
+# Row 3 (Weapons + Slash)
+draw_machinegun(draw, 0, 128)    # (0, 2) - Machine gun icon
+draw_sword(draw, 64, 128)        # (1, 2) - Sword icon
+draw_bazooka(draw, 128, 128)     # (2, 2) - Bazooka icon
+draw_sword_slash(draw, 192, 128) # (3, 2) - Sword slash arc
 
 atlas.save('assets/atlas.png')
 print("Generated assets/atlas.png (256x256)")
