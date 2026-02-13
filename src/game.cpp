@@ -243,6 +243,7 @@ void Game::ResetGame() {
   player->color = {1, 1, 1, 1};
   player->maxHp = 100;
   player->hp = 100;
+  player->colliderSize = {30.0f, 40.0f}; // Slimmer width for player
   player->piercingTimer = 0;
   std::mt19937 rng(12345);
   std::uniform_real_distribution<float> dp(-1000, 1000);
@@ -254,6 +255,7 @@ void Game::ResetGame() {
     e.uvOffset = {0.75f, 0};
     e.uvScale = {0.25f, 0.25f};
     e.radius = 15;
+    e.colliderSize = {30, 30};
     e.color = {0.5f, 1, 1, 1};
     entities.push_back(e);
   }
@@ -268,60 +270,160 @@ void Game::ResetGame() {
   bulletDamage = 15;
   bulletPenetration = 1;
   fireCooldown = 0.2f;
-  nextBossTime = 60.0f;
+  // Wave system
+  currentWave = 0;
+  waveTimer = 0.0f;
+  waveDuration = 35.0f;
+  waveBossSpawned = false;
+  waveBossAlive = false;
+  endlessMode = false;
+  endlessTimer = 0.0f;
+  // Difficulty Director
+  difficultyRating = 0.3f;
+  targetDifficulty = 0.3f;
+  perf = PerformanceMetrics{};
+  diffOut = DifficultyOutput{};
+  // Dodge roll
+  dodgeTimer = dodgeCooldown;
+  dodging = false;
+  dodgeTimeLeft = 0.0f;
+  lastMoveDir = {1, 0};
   state = GameState::Playing;
 }
 
-void Game::SpawnEnemy() {
+void Game::SpawnEnemy(int enemyType) {
   std::random_device rd;
   std::mt19937 rng(rd());
   std::uniform_real_distribution<float> da(0, 6.28f), dr(900, 1300);
   float a = da(rng), r = dr(rng);
   Entity e;
   e.position = player->position + glm::vec2(cos(a) * r, sin(a) * r);
-  e.scale = {64, 64};
   e.uvScale = {0.25f, 0.25f};
-  e.radius = 25;
-  if (std::bernoulli_distribution(0.5)(rng)) {
-    // Blob: tanky, normal speed
-    e.type = EntityType::Blob;
-    e.uvOffset = {0.25f, 0};
-    e.color = {0.8f, 1, 0.8f, 1};
-    e.hp = 60;
-    e.maxHp = 60;
-    e.speed = 100;
-  } else {
-    // Skeleton: fragile, fast
+
+  // Use separate multipliers from difficulty director
+  float hpM = diffOut.enemyHpMult;
+  float dmgM = diffOut.enemyDamageMult;
+  float spdM = diffOut.enemySpeedMult;
+
+  switch (enemyType) {
+  case 0: // Small Skeletons
     e.type = EntityType::Skeleton;
+    e.scale = {64, 64};
     e.uvOffset = {0.5f, 0};
     e.color = {1, 0.9f, 0.9f, 1};
-    e.hp = 30;
-    e.maxHp = 30;
-    e.speed = 150;
+    e.hp = 30 * hpM;
+    e.maxHp = e.hp;
+    e.speed = 150 * spdM;
+    e.radius = 18;
+    e.colliderSize = {36, 36};
+    e.contactDamage = 15.0f * dmgM;
+    break;
+  case 1: // Small Slimes
+    e.type = EntityType::Blob;
+    e.scale = {64, 64};
+    e.uvOffset = {0.25f, 0};
+    e.color = {0.8f, 1, 0.8f, 1};
+    e.hp = 60 * hpM;
+    e.maxHp = e.hp;
+    e.speed = 110 * spdM;
+    e.radius = 18;
+    e.colliderSize = {36, 36};
+    e.contactDamage = 25.0f * dmgM;
+    break;
+  case 2: // Big Skeletons
+    e.type = EntityType::Skeleton;
+    e.scale = {96, 96};
+    e.uvOffset = {0.5f, 0};
+    e.color = {1, 0.7f, 0.7f, 1};
+    e.hp = 80 * hpM;
+    e.maxHp = e.hp;
+    e.speed = 130 * spdM;
+    e.radius = 28;
+    e.colliderSize = {48, 48};
+    e.contactDamage = 30.0f * dmgM;
+    break;
+  case 3: // Big Slimes
+    e.type = EntityType::Blob;
+    e.scale = {96, 96};
+    e.uvOffset = {0.25f, 0};
+    e.color = {0.5f, 1.0f, 0.5f, 1};
+    e.hp = 100 * hpM;
+    e.maxHp = e.hp;
+    e.speed = 100 * spdM;
+    e.radius = 28;
+    e.colliderSize = {48, 48};
+    e.contactDamage = 35.0f * dmgM;
+    break;
+  default:
+    return SpawnEnemy(rng() % 4);
   }
   entities.push_back(e);
 }
 
-void Game::SpawnBoss() {
+void Game::SpawnBoss(int bossType) {
   std::random_device rd;
   std::mt19937 rng(rd());
   std::uniform_real_distribution<float> da(0, 6.28f);
   float a = da(rng);
+  float bhp = diffOut.bossHpMult;
+  float bdmg = diffOut.bossDamageMult;
   Entity e;
   e.type = EntityType::SkeletonMage;
   e.position = player->position + glm::vec2(cos(a) * 1000, sin(a) * 1000);
-  e.scale = {96, 96};
   e.uvScale = {0.25f, 0.25f};
-  e.uvOffset = {0.5f, 0};             // Skeleton sprite
-  e.color = {0.7f, 0.3f, 1.0f, 1.0f}; // Purple tint
-  e.radius = 35;
-  e.hp = 1000;
-  e.maxHp = 1000;
-  e.speed = 50;
   e.shootTimer = 0;
   e.summonTimer = 0;
+
+  switch (bossType) {
+  case 0: // Skeleton Mage
+    e.scale = {96, 96};
+    e.uvOffset = {0.5f, 0};
+    e.color = {0.7f, 0.3f, 1.0f, 1.0f};
+    e.radius = 35;
+    e.colliderSize = {60, 60};
+    e.hp = 800 * bhp;
+    e.maxHp = e.hp;
+    e.speed = 50;
+    e.contactDamage = 40.0f * bdmg;
+    break;
+  case 1: // Slime Boss
+    e.scale = {128, 128};
+    e.uvOffset = {0.25f, 0};
+    e.color = {0.4f, 1.0f, 0.4f, 1.0f};
+    e.radius = 50;
+    e.colliderSize = {80, 80};
+    e.hp = 1200 * bhp;
+    e.maxHp = e.hp;
+    e.speed = 40;
+    e.contactDamage = 50.0f * bdmg;
+    break;
+  case 2: // Big Skeleton Mage
+    e.scale = {128, 128};
+    e.uvOffset = {0.5f, 0};
+    e.color = {0.9f, 0.2f, 0.8f, 1.0f};
+    e.radius = 50;
+    e.colliderSize = {80, 80};
+    e.hp = 1800 * bhp;
+    e.maxHp = e.hp;
+    e.speed = 45;
+    e.contactDamage = 55.0f * bdmg;
+    break;
+  case 3: // Big Slime Boss
+    e.scale = {160, 160};
+    e.uvOffset = {0.25f, 0};
+    e.color = {0.2f, 0.9f, 0.2f, 1.0f};
+    e.radius = 60;
+    e.colliderSize = {100, 100};
+    e.hp = 2500 * bhp;
+    e.maxHp = e.hp;
+    e.speed = 35;
+    e.contactDamage = 60.0f * bdmg;
+    break;
+  }
   entities.push_back(e);
-  std::cout << ">>> BOSS SPAWNED! <<<" << std::endl;
+  std::cout << ">>> BOSS (type " << bossType
+            << ") SPAWNED! Diff=" << difficultyRating
+            << " Power=" << CalculatePlayerPower() << " <<<" << std::endl;
 }
 
 void Game::SpawnGem(glm::vec2 pos, int type) {
@@ -330,6 +432,7 @@ void Game::SpawnGem(glm::vec2 pos, int type) {
   e.scale = {64, 64};
   e.uvScale = {0.25f, 0.25f};
   e.radius = 15;
+  e.colliderSize = {30, 30};
   if (type == 0) {
     e.type = EntityType::HealthGem;
     e.uvOffset = {0, 0.25f};
@@ -352,13 +455,14 @@ void Game::SpawnBullet(glm::vec2 targetPos) {
   b.uvOffset = {0.75f, 0};
   b.uvScale = {0.25f, 0.25f};
   b.radius = 10;
+  b.colliderSize = {20, 20};
   b.color = {1, 1, 0, 1};
   b.lifeTime = 2;
   b.damage = bulletDamage;
   if (player->piercingTimer > 0) {
-    b.penetration = 100;
+    b.penetration = 5;
     b.color = {1, 0.2f, 1, 1};
-    b.scale = {48, 48};
+    b.scale = {40, 40};
   } else {
     b.penetration = bulletPenetration;
   }
@@ -377,6 +481,7 @@ void Game::SpawnEnemyBullet(glm::vec2 from, glm::vec2 target) {
   b.uvScale = {0.25f, 0.25f};         // Crystal sprite
   b.color = {1.0f, 0.2f, 0.2f, 1.0f}; // Red
   b.radius = 16;                      // 2x radius
+  b.colliderSize = {32, 32};
   b.lifeTime = 3;
   b.damage = 30; // 2x damage
   glm::vec2 dir = target - from;
@@ -445,7 +550,7 @@ void Game::ApplyUpgrade(int choice) {
     playerSpeed += 50;
     break;
   case UpgradeType::Penetration:
-    bulletPenetration += 2;
+    bulletPenetration += 1;
     break;
   }
   state = GameState::Playing;
@@ -496,8 +601,21 @@ void Game::ProcessInput(float dt) {
     input.x -= 1;
   if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
     input.x += 1;
-  if (glm::length(input) > 0)
-    player->position += glm::normalize(input) * playerSpeed * dt;
+  if (glm::length(input) > 0) {
+    lastMoveDir = glm::normalize(input);
+    if (!dodging)
+      player->position += lastMoveDir * playerSpeed * dt;
+  }
+  // Dodge roll on spacebar
+  static bool spaceWasPressed = false;
+  bool spaceNow = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+  if (spaceNow && !spaceWasPressed && !dodging && dodgeTimer >= dodgeCooldown) {
+    dodging = true;
+    dodgeTimeLeft = dodgeDuration;
+    dodgeDir = lastMoveDir;
+    dodgeTimer = 0;
+  }
+  spaceWasPressed = spaceNow;
 }
 
 void Game::Update(float dt) {
@@ -520,23 +638,84 @@ void Game::Update(float dt) {
   fireTimer += dt;
   if (player->piercingTimer > 0)
     player->piercingTimer -= dt;
+  dodgeTimer += dt;
 
-  // Recurring mini-boss spawn
-  if (gameTime >= nextBossTime) {
-    SpawnBoss();
-    // Next boss sooner each time (min 20s interval)
-    float interval = std::max(20.0f, 45.0f - gameTime * 0.1f);
-    nextBossTime = gameTime + interval;
+  // Dodge roll movement
+  if (dodging) {
+    player->position += dodgeDir * dodgeSpeed * dt;
+    dodgeTimeLeft -= dt;
+    if (dodgeTimeLeft <= 0) {
+      dodging = false;
+    }
   }
 
-  // Wave spawning
-  float diff = 1 + (gameTime / 60) * 10;
-  float interval = 0.5f / diff;
-  if (interval < 0.05f)
-    interval = 0.05f;
-  if (spawnTimer >= interval && entities.size() < 15000) {
-    spawnTimer = 0;
-    SpawnEnemy();
+  // === Difficulty Director ===
+  UpdatePerformanceMetrics(dt);
+  UpdateDifficultyDirector(dt);
+  diffOut = CalculateDifficultyOutput();
+
+  // === Wave System (4 waves + endless) ===
+  waveTimer += dt;
+
+  if (endlessMode) {
+    endlessTimer += dt;
+    // ENDLESS MODE: spawn all types, escalating
+    float interval = 0.4f / diffOut.spawnRateMult;
+    if (interval < 0.03f)
+      interval = 0.03f;
+    if (spawnTimer >= interval && entities.size() < 15000) {
+      spawnTimer = 0;
+      static std::mt19937 erng(std::random_device{}());
+      int maxType = std::min(3, (int)(endlessTimer / 20.0f));
+      SpawnEnemy(erng() % (maxType + 1));
+    }
+  } else if (!waveBossAlive) {
+    int enemyType = currentWave;
+    float interval = 0.5f / diffOut.spawnRateMult;
+    if (interval < 0.06f)
+      interval = 0.06f;
+    if (spawnTimer >= interval && entities.size() < 15000) {
+      spawnTimer = 0;
+      SpawnEnemy(enemyType);
+    }
+    // Transition to boss after waveDuration
+    if (waveTimer >= waveDuration && !waveBossSpawned) {
+      waveBossSpawned = true;
+      waveBossAlive = true;
+      SpawnBoss(currentWave); // Boss type matches wave
+      std::cout << ">> Wave " << (currentWave + 1) << " BOSS PHASE!"
+                << std::endl;
+    }
+  } else {
+    // Boss is alive — still trickle enemies
+    float bossInterval = 0.7f;
+    if (spawnTimer >= bossInterval && entities.size() < 15000) {
+      spawnTimer = 0;
+      SpawnEnemy(currentWave);
+    }
+    // Check if boss is dead
+    bool found = false;
+    for (const auto &ent : entities) {
+      if (ent.type == EntityType::SkeletonMage) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      waveBossAlive = false;
+      waveBossSpawned = false;
+      currentWave++;
+      waveTimer = 0;
+      if (currentWave >= 4) {
+        // All 4 waves complete — enter ENDLESS MODE
+        endlessMode = true;
+        endlessTimer = 0;
+        std::cout << ">>> ENDLESS MODE ACTIVATED! <<<" << std::endl;
+      } else {
+        std::cout << ">> Wave " << (currentWave + 1) << " started!"
+                  << std::endl;
+      }
+    }
   }
 
   // Player firing
@@ -554,6 +733,21 @@ void Game::Update(float dt) {
     if (i >= (int)entities.size())
       continue; // safety after removals
     Entity &e = entities[i];
+
+    // --- Animation Update ---
+    if (e.anim.frameCount > 1) {
+      e.anim.timer += dt;
+      if (e.anim.timer >= e.anim.frameDuration) {
+        e.anim.timer = 0.0f;
+        e.anim.currentFrame = (e.anim.currentFrame + 1) % e.anim.frameCount;
+        // Calculate new UVs based on frame
+        // Assuming horizontal strip animation for now
+        int col = e.anim.startFrameX + e.anim.currentFrame;
+        int row = e.anim.startFrameY;
+        e.uvOffset.x = col * e.uvScale.x;
+        e.uvOffset.y = row * e.uvScale.y;
+      }
+    }
 
     // --- Corpse lifeTime decay ---
     if (e.type == EntityType::SkeletonCorpse ||
@@ -594,8 +788,8 @@ void Game::Update(float dt) {
                                    500.0f);
         }
       }
-      // Necromancy: resurrect nearby corpses every 5s
-      if (e.summonTimer >= 5.0f) {
+      // Necromancy: resurrect nearby corpses every 5s (skeleton mage only)
+      if (e.summonTimer >= 5.0f && e.uvOffset.x > 0.4f) {
         e.summonTimer = 0;
         bool resurrected = false;
         for (size_t c = 1; c < entities.size(); ++c) {
@@ -612,11 +806,21 @@ void Game::Update(float dt) {
           corpse.scale = {64, 64};
           corpse.uvOffset = {0.5f, 0};
           corpse.uvScale = {0.25f, 0.25f};
-          corpse.radius = 25;
+          corpse.radius = 18;
           corpse.color = {1, 0.7f, 0.7f, 1};
         }
         if (resurrected)
           audio.PlaySFX(SFXType::Death); // Necromancy sound
+      }
+      // Big Slime Boss AOE: fire 8 bullets in a circle every 4s
+      if (e.summonTimer >= 4.0f && e.uvOffset.x < 0.4f) {
+        e.summonTimer = 0;
+        for (int b = 0; b < 8; ++b) {
+          float angle = b * (6.2832f / 8.0f);
+          SpawnEnemyBullet(e.position,
+                           e.position +
+                               glm::vec2(cos(angle), sin(angle)) * 500.0f);
+        }
       }
     }
 
@@ -629,9 +833,13 @@ void Game::Update(float dt) {
         entities.pop_back();
         continue;
       }
-      if (glm::distance(e.position, player->position) <
-          (player->radius + e.radius)) {
-        player->hp -= e.damage;
+      // Check AABB vs Player
+      if (CheckCollisionAABB(e, *player)) {
+        float d = e.damage;
+        player->hp -= d;
+        perf.windowDmgTaken += d;
+        perf.totalDmgTaken += d;
+        perf.timeSinceLastHit = 0;
         entities[i] = entities.back();
         entities.pop_back();
         if (player->hp <= 0) {
@@ -658,10 +866,17 @@ void Game::Update(float dt) {
              tgt.type == EntityType::SkeletonMage);
         if (!isEnemy)
           continue;
-        if (glm::distance(e.position, tgt.position) < (tgt.radius + e.radius)) {
-          tgt.hp -= e.damage;
+
+        // Check AABB vs Enemy
+        if (CheckCollisionAABB(e, tgt)) {
+          float dealt = e.damage;
+          tgt.hp -= dealt;
+          perf.windowDmgDealt += dealt;
+          perf.totalDmgDealt += dealt;
           e.penetration--;
           if (tgt.hp <= 0) {
+            perf.windowKills++;
+            perf.totalKills++;
             audio.PlaySFX(SFXType::Hit);
             glm::vec2 dpos = tgt.position;
             if (tgt.type == EntityType::SkeletonMage) {
@@ -688,6 +903,8 @@ void Game::Update(float dt) {
                 EntityType origType = tgt.type;
                 // Drop crystal for XP
                 tgt.type = EntityType::Crystal;
+                tgt.scale = {64, 64}; // Always standard size crystal
+                tgt.colliderSize = {30, 30};
                 tgt.color = {0.5f, 1, 1, 1};
                 tgt.uvOffset = {0.75f, 0};
                 tgt.radius = 15;
@@ -731,10 +948,11 @@ void Game::Update(float dt) {
       continue;
     Entity &ec = entities[i];
     if (ec.type == EntityType::Crystal) {
-      if (glm::distance(player->position, ec.position) <
-          (player->radius + ec.radius + 20)) {
+      if (CheckCollisionAABB(*player, ec)) {
         xp++;
         score++;
+        perf.windowXp++;
+        perf.totalXp++;
         audio.PlaySFX(SFXType::Collect);
         entities[i] = entities.back();
         entities.pop_back();
@@ -742,17 +960,15 @@ void Game::Update(float dt) {
           TriggerLevelUp();
       }
     } else if (ec.type == EntityType::HealthGem) {
-      if (glm::distance(player->position, ec.position) <
-          (player->radius + ec.radius + 20)) {
+      if (CheckCollisionAABB(*player, ec)) {
         player->hp = std::min(player->hp + 20, player->maxHp);
         audio.PlaySFX(SFXType::Collect);
         entities[i] = entities.back();
         entities.pop_back();
       }
     } else if (ec.type == EntityType::PiercingGem) {
-      if (glm::distance(player->position, ec.position) <
-          (player->radius + ec.radius + 20)) {
-        player->piercingTimer = 10;
+      if (CheckCollisionAABB(*player, ec)) {
+        player->piercingTimer = 5;
         audio.PlaySFX(SFXType::Collect);
         entities[i] = entities.back();
         entities.pop_back();
@@ -765,10 +981,12 @@ void Game::Update(float dt) {
     Entity &ed = entities[i];
     if (ed.type == EntityType::Blob || ed.type == EntityType::Skeleton ||
         ed.type == EntityType::SkeletonMage) {
-      if (glm::distance(player->position, ed.position) <
-          (player->radius + ed.radius - 5)) {
-        float dmg = (ed.type == EntityType::SkeletonMage) ? 40.0f : 20.0f;
-        player->hp -= dmg * dt;
+      if (!dodging && CheckCollisionAABB(*player, ed)) {
+        float dmg = ed.contactDamage * dt;
+        player->hp -= dmg;
+        perf.windowDmgTaken += dmg;
+        perf.totalDmgTaken += dmg;
+        perf.timeSinceLastHit = 0;
         if (player->hp <= 0) {
           state = GameState::GameOver;
           audio.PlaySFX(SFXType::Death);
@@ -829,12 +1047,415 @@ void Game::Update(float dt) {
             float rSum = e.radius + o.radius;
             if (d2 < rSum * rSum && d2 > 0.001f) {
               float dist2 = std::sqrt(d2);
-              e.position += (d / dist2) * (rSum - dist2) * 0.8f;
+              e.position += (d / dist2) * (rSum - dist2) * 0.3f;
             }
           }
         }
     }
   }
+}
+
+bool Game::CheckCollisionAABB(const Entity &a, const Entity &b) {
+  // AABB check: |center_dist| < (size_a/2 + size_b/2)
+  bool collisionX = std::abs(a.position.x - b.position.x) * 2 <
+                    (a.colliderSize.x + b.colliderSize.x);
+  bool collisionY = std::abs(a.position.y - b.position.y) * 2 <
+                    (a.colliderSize.y + b.colliderSize.y);
+  return collisionX && collisionY;
+}
+
+int Game::GetRenderLayer(EntityType t) const {
+  switch (t) {
+  case EntityType::SkeletonCorpse:
+  case EntityType::BlobCorpse:
+    return 0; // Bottom layer
+  case EntityType::Crystal:
+  case EntityType::HealthGem:
+  case EntityType::PiercingGem:
+    return 1; // Pickups above corpses
+  case EntityType::Blob:
+  case EntityType::Skeleton:
+  case EntityType::SkeletonMage:
+    return 2; // Enemies on top of pickups
+  case EntityType::Bullet:
+  case EntityType::EnemyBullet:
+    return 3; // Bullets above everything
+  case EntityType::Player:
+    return 4; // Player always on top
+  default:
+    return 1;
+  }
+}
+
+// ===================================================================
+// DIFFICULTY DIRECTOR IMPLEMENTATION
+// Comprehensive performance-based adaptive difficulty system
+// ===================================================================
+
+void Game::UpdatePerformanceMetrics(float dt) {
+  // Track time since last hit
+  perf.timeSinceLastHit += dt;
+  if (perf.timeSinceLastHit > perf.longestNoHitStreak)
+    perf.longestNoHitStreak = perf.timeSinceLastHit;
+
+  // Track average HP percentage (exponential moving average)
+  if (player) {
+    float hpPct = player->hp / std::max(1.0f, player->maxHp);
+    perf.avgHpPercent = perf.avgHpPercent * 0.99f + hpPct * 0.01f;
+  }
+
+  // Rolling window: accumulate for WINDOW_DURATION, then update smoothed rates
+  perf.windowTimer += dt;
+  if (perf.windowTimer >= PerformanceMetrics::WINDOW_DURATION) {
+    float dur = perf.windowTimer;
+    // Exponential moving average: 70% old + 30% new window
+    perf.killsPerSecond =
+        perf.killsPerSecond * 0.7f + (perf.windowKills / dur) * 0.3f;
+    perf.damageTakenPerSecond =
+        perf.damageTakenPerSecond * 0.7f + (perf.windowDmgTaken / dur) * 0.3f;
+    perf.damageDealtPerSecond =
+        perf.damageDealtPerSecond * 0.7f + (perf.windowDmgDealt / dur) * 0.3f;
+    perf.xpPerSecond = perf.xpPerSecond * 0.7f + (perf.windowXp / dur) * 0.3f;
+
+    // Reset window accumulators
+    perf.windowKills = 0;
+    perf.windowDmgTaken = 0;
+    perf.windowDmgDealt = 0;
+    perf.windowXp = 0;
+    perf.windowTimer = 0;
+  }
+
+  // Performance history: sample every 3 seconds
+  perf.historyTimer += dt;
+  if (perf.historyTimer >= 3.0f) {
+    perf.historyTimer = 0;
+    float score = CalculatePerformanceScore();
+    perf.performanceHistory[perf.historyIndex] = score;
+    perf.historyIndex = (perf.historyIndex + 1) % 10;
+    if (perf.historySamples < 10)
+      perf.historySamples++;
+  }
+}
+
+float Game::CalculateOffensivePower() const {
+  // DPS from bullets: damage / fireCooldown * penetration bonus
+  float effectiveFireRate = 1.0f / std::max(0.05f, fireCooldown);
+  float rawDps = bulletDamage * effectiveFireRate;
+
+  // Penetration multiplier: each extra pierce adds 30% effective DPS
+  float pierceBonus = 1.0f + (bulletPenetration - 1) * 0.3f;
+
+  // Piercing gem uptime bonus (temporary power spikes)
+  float piercingBonus = 1.0f;
+  if (player && player->piercingTimer > 0)
+    piercingBonus = 1.3f;
+
+  float totalDps = rawDps * pierceBonus * piercingBonus;
+
+  // Normalize: baseline DPS is 75 (15 dmg * 5 shots/s)
+  return totalDps / 75.0f;
+}
+
+float Game::CalculateDefensivePower() const {
+  if (!player)
+    return 1.0f;
+
+  // HP pool: how much total damage can be absorbed
+  float hpFactor = player->maxHp / 100.0f;
+
+  // Current HP matters: full health = can afford more risk
+  float currentHpBonus = 1.0f;
+  float hpPct = player->hp / std::max(1.0f, player->maxHp);
+  if (hpPct > 0.8f)
+    currentHpBonus = 1.1f; // High HP = slight boost
+  else if (hpPct < 0.3f)
+    currentHpBonus = 0.7f; // Low HP = reduce pressure
+  else if (hpPct < 0.5f)
+    currentHpBonus = 0.85f;
+
+  // Dodge availability: having dodge ready is defensive power
+  float dodgeBonus = 1.0f;
+  if (dodgeTimer >= dodgeCooldown)
+    dodgeBonus = 1.1f; // Dodge ready
+  if (dodging)
+    dodgeBonus = 1.2f; // Currently invincible
+
+  return hpFactor * currentHpBonus * dodgeBonus;
+}
+
+float Game::CalculateMobilityPower() const {
+  // Speed advantage: faster player can dodge more
+  float speedRatio = playerSpeed / 300.0f;
+
+  // Dodge roll gives extra mobility
+  float dodgeMobilityBonus = 1.0f + (dodgeSpeed / 1200.0f - 1.0f) * 0.2f;
+
+  return speedRatio * dodgeMobilityBonus;
+}
+
+float Game::CalculatePlayerPower() const {
+  // Weighted combination of all power components
+  float offensive = CalculateOffensivePower();
+  float defensive = CalculateDefensivePower();
+  float mobility = CalculateMobilityPower();
+
+  // Offensive power matters most (50%), defensive (30%), mobility (20%)
+  float rawPower = offensive * 0.50f + defensive * 0.30f + mobility * 0.20f;
+
+  // Level bonus: each level adds ~3% effective power
+  float levelBonus = 1.0f + playerLevel * 0.03f;
+
+  return rawPower * levelBonus;
+}
+
+float Game::CalculatePerformanceScore() const {
+  // Performance score: how well is the player actually doing?
+  // 1.0 = balanced, >1 = dominating, <1 = struggling
+  float score = 1.0f;
+
+  // Factor 1: Kill rate relative to expected
+  // Expected: ~2 kills/sec at baseline
+  float expectedKps = 2.0f;
+  float killRatio = perf.killsPerSecond / std::max(0.1f, expectedKps);
+  // Clamp to [0.2, 3.0] to avoid extreme values
+  killRatio = std::clamp(killRatio, 0.2f, 3.0f);
+
+  // Factor 2: Damage efficiency (dealing vs taking)
+  float damageEfficiency = 1.0f;
+  if (perf.damageTakenPerSecond > 0.01f) {
+    float ratio = perf.damageDealtPerSecond / perf.damageTakenPerSecond;
+    // High ratio = player is dominating
+    damageEfficiency = std::clamp(ratio / 10.0f, 0.3f, 2.5f);
+  } else if (perf.damageDealtPerSecond > 1.0f) {
+    // Taking zero damage but dealing lots = clearly dominating
+    damageEfficiency = 2.0f;
+  }
+
+  // Factor 3: HP health status
+  float healthScore = 1.0f;
+  if (perf.avgHpPercent > 0.9f)
+    healthScore = 1.3f; // Almost full HP = too easy
+  else if (perf.avgHpPercent > 0.7f)
+    healthScore = 1.1f;
+  else if (perf.avgHpPercent > 0.5f)
+    healthScore = 1.0f; // Balanced
+  else if (perf.avgHpPercent > 0.3f)
+    healthScore = 0.8f; // Getting hurt
+  else
+    healthScore = 0.5f; // Critical!
+
+  // Factor 4: No-hit streak
+  float noHitBonus = 1.0f;
+  if (perf.timeSinceLastHit > 15.0f)
+    noHitBonus = 1.4f; // Haven't been hit in 15s = too easy
+  else if (perf.timeSinceLastHit > 10.0f)
+    noHitBonus = 1.2f;
+  else if (perf.timeSinceLastHit > 5.0f)
+    noHitBonus = 1.1f;
+  else if (perf.timeSinceLastHit < 1.0f)
+    noHitBonus = 0.7f; // Just got hit
+
+  // Factor 5: XP collection rate (indicates how well player farms)
+  float xpScore = 1.0f;
+  float expectedXps = 0.8f; // ~1 crystal per 1.2s at baseline
+  if (perf.xpPerSecond > expectedXps * 2.0f)
+    xpScore = 1.3f;
+  else if (perf.xpPerSecond > expectedXps)
+    xpScore = 1.1f;
+  else if (perf.xpPerSecond < expectedXps * 0.3f && gameTime > 10.0f)
+    xpScore = 0.7f;
+
+  // Weighted combination
+  score = killRatio * 0.30f + damageEfficiency * 0.25f + healthScore * 0.20f +
+          noHitBonus * 0.15f + xpScore * 0.10f;
+
+  return score;
+}
+
+WaveDifficultyConfig Game::GetWaveConfig(int wave) const {
+  // Each wave has specific difficulty parameters:
+  // targetPowerRatio: how hard relative to player power
+  // difficultyCap: absolute maximum multiplier
+  // rampSpeed: how fast difficulty approaches target
+  // difficultyFloor: minimum multiplier
+  // spawnRateMult: base spawn rate for this wave
+  // bossHpMult: boss HP scaling
+
+  WaveDifficultyConfig configs[4] = {
+      // Wave 1: Skeletons — below player power, gentle start
+      {0.65f, 1.2f, 0.15f, 0.25f, 0.8f, 0.7f},
+      // Wave 2: Slimes — at player power level
+      {0.90f, 1.8f, 0.20f, 0.40f, 1.0f, 1.0f},
+      // Wave 3: Big Skeletons — slightly above player
+      {1.10f, 2.5f, 0.25f, 0.50f, 1.2f, 1.3f},
+      // Wave 4: Big Slimes — above player
+      {1.30f, 3.2f, 0.30f, 0.60f, 1.4f, 1.6f},
+  };
+
+  if (wave >= 0 && wave < 4)
+    return configs[wave];
+
+  // Endless: no cap, aggressive ramp
+  float endlessTime = endlessTimer;
+  return WaveDifficultyConfig{
+      1.5f + endlessTime * 0.02f,  // Target grows over time
+      999.0f,                      // No cap
+      0.40f + endlessTime * 0.01f, // Ramp gets faster
+      1.0f,                        // Minimum 1.0x in endless
+      1.5f + endlessTime * 0.03f,  // Spawn rate escalates
+      2.0f + endlessTime * 0.05f,  // Boss HP escalates
+  };
+}
+
+float Game::CalculateTargetDifficulty() const {
+  WaveDifficultyConfig cfg = GetWaveConfig(endlessMode ? 99 : currentWave);
+  float playerPower = CalculatePlayerPower();
+  float perfScore = CalculatePerformanceScore();
+
+  // Base target: player power scaled by wave's target ratio
+  float baseTarget = playerPower * cfg.targetPowerRatio;
+
+  // Performance adjustment:
+  // If player is dominating (perfScore > 1.2), push difficulty higher
+  // If player is struggling (perfScore < 0.8), ease off
+  float perfAdjustment = 1.0f;
+  if (perfScore > 1.5f)
+    perfAdjustment = 1.4f; // Clearly dominating
+  else if (perfScore > 1.2f)
+    perfAdjustment = 1.2f; // Doing well
+  else if (perfScore > 0.9f)
+    perfAdjustment = 1.0f; // Balanced
+  else if (perfScore > 0.7f)
+    perfAdjustment = 0.85f; // Struggling slightly
+  else if (perfScore > 0.5f)
+    perfAdjustment = 0.7f; // Struggling significantly
+  else
+    perfAdjustment = 0.5f; // About to die
+
+  // Performance trend: check if player is improving or declining
+  float trend = 0.0f;
+  if (perf.historySamples >= 3) {
+    // Compare recent vs older samples
+    int recent = (perf.historyIndex - 1 + 10) % 10;
+    int older =
+        (perf.historyIndex - std::min(perf.historySamples, 5) + 10) % 10;
+    float recentScore = perf.performanceHistory[recent];
+    float olderScore = perf.performanceHistory[older];
+    trend = recentScore - olderScore;
+    // Positive trend = player getting stronger, push difficulty up slightly
+    // Negative trend = player weakening, ease off slightly
+    trend = std::clamp(trend, -0.3f, 0.3f);
+  }
+
+  float target = baseTarget * perfAdjustment + trend * 0.2f;
+
+  // Critical safety: if player HP is very low, reduce pressure
+  if (player) {
+    float hpPct = player->hp / std::max(1.0f, player->maxHp);
+    if (hpPct < 0.15f)
+      target *= 0.5f; // Emergency ease-off
+    else if (hpPct < 0.25f)
+      target *= 0.7f;
+    else if (hpPct < 0.4f)
+      target *= 0.85f;
+  }
+
+  // Clamp to wave's floor and ceiling
+  target = std::clamp(target, cfg.difficultyFloor, cfg.difficultyCap);
+
+  return target;
+}
+
+void Game::UpdateDifficultyDirector(float dt) {
+  // Calculate where difficulty should be heading
+  targetDifficulty = CalculateTargetDifficulty();
+  WaveDifficultyConfig cfg = GetWaveConfig(endlessMode ? 99 : currentWave);
+
+  // Smooth interpolation toward target
+  float diff = targetDifficulty - difficultyRating;
+  float rampSpeed = cfg.rampSpeed;
+
+  // Asymmetric ramping: faster to reduce difficulty than increase
+  // This prevents sudden death spirals while allowing gradual escalation
+  if (diff < 0) {
+    // Reducing difficulty: move faster (compassion)
+    rampSpeed *= 2.5f;
+  } else if (diff > 0.5f) {
+    // Far from target: slightly faster approach
+    rampSpeed *= 1.3f;
+  }
+
+  // Approach target smoothly
+  if (std::abs(diff) < 0.01f) {
+    difficultyRating = targetDifficulty; // Snap when very close
+  } else {
+    difficultyRating += diff * rampSpeed * dt;
+  }
+
+  // Final clamp to wave's absolute bounds
+  difficultyRating =
+      std::clamp(difficultyRating, cfg.difficultyFloor, cfg.difficultyCap);
+
+  // Minimum game time ramp: even if player is weak, ensure minimal progression
+  // This prevents the game from being stuck at trivial difficulty forever
+  float timeFloor = 0.3f + gameTime * 0.003f; // Minimum grows by 0.18/min
+  if (difficultyRating < timeFloor && !endlessMode)
+    difficultyRating = std::min(timeFloor, cfg.difficultyCap);
+}
+
+DifficultyOutput Game::CalculateDifficultyOutput() const {
+  DifficultyOutput out;
+  float base = difficultyRating;
+  WaveDifficultyConfig cfg = GetWaveConfig(endlessMode ? 99 : currentWave);
+
+  // == Enemy HP ==
+  // HP scales with difficulty but with diminishing returns
+  // This prevents enemies from becoming unkillable bullet sponges
+  out.enemyHpMult = 0.6f + base * 0.6f;
+  if (out.enemyHpMult > 1.5f)
+    out.enemyHpMult = 1.5f + (out.enemyHpMult - 1.5f) * 0.4f; // Diminishing
+  out.enemyHpMult = std::max(0.3f, out.enemyHpMult);
+
+  // == Enemy Damage ==
+  // Damage scales more aggressively than HP (makes game feel dangerous)
+  out.enemyDamageMult = 0.5f + base * 0.7f;
+  out.enemyDamageMult = std::clamp(out.enemyDamageMult, 0.2f, 4.0f);
+
+  // Safety: if player HP low, reduce damage further
+  if (player) {
+    float hpPct = player->hp / std::max(1.0f, player->maxHp);
+    if (hpPct < 0.2f)
+      out.enemyDamageMult *= 0.6f;
+    else if (hpPct < 0.4f)
+      out.enemyDamageMult *= 0.8f;
+  }
+
+  // == Enemy Speed ==
+  // Speed scales gently — too fast enemies feel unfair
+  out.enemySpeedMult = 0.8f + base * 0.25f;
+  // Clamp speed: never below 0.5x, never above 1.8x
+  out.enemySpeedMult = std::clamp(out.enemySpeedMult, 0.5f, 1.8f);
+  // Add subtle time-based boost (always gets slightly faster)
+  out.enemySpeedMult *= 1.0f + gameTime * 0.0005f;
+  if (out.enemySpeedMult > 2.0f)
+    out.enemySpeedMult = 2.0f;
+
+  // == Spawn Rate ==
+  // Spawn rate comes from wave config + difficulty
+  out.spawnRateMult = cfg.spawnRateMult * (0.7f + base * 0.4f);
+  out.spawnRateMult = std::clamp(out.spawnRateMult, 0.3f, 5.0f);
+
+  // == Boss HP ==
+  // Boss HP based on player's offensive power: should take 15-30 seconds
+  float offPower = CalculateOffensivePower();
+  out.bossHpMult = cfg.bossHpMult * (0.5f + offPower * 0.5f);
+  out.bossHpMult = std::max(0.3f, out.bossHpMult);
+
+  // == Boss Damage ==
+  out.bossDamageMult = 0.5f + base * 0.6f;
+  out.bossDamageMult = std::clamp(out.bossDamageMult, 0.3f, 3.0f);
+
+  return out;
 }
 
 void Game::Render() {
@@ -858,9 +1479,20 @@ void Game::Render() {
   textData.clear();
   spriteData.reserve(entities.size() + 30);
 
-  for (const auto &e : entities)
+  // Sort entities by render layer: corpses < crystals/gems < enemies < bullets
+  // < player
+  static std::vector<int> renderOrder;
+  renderOrder.resize(entities.size());
+  for (int i = 0; i < (int)entities.size(); ++i)
+    renderOrder[i] = i;
+  std::sort(renderOrder.begin(), renderOrder.end(), [this](int a, int b) {
+    return GetRenderLayer(entities[a].type) < GetRenderLayer(entities[b].type);
+  });
+  for (int idx : renderOrder) {
+    const auto &e = entities[idx];
     spriteData.push_back(
         {e.position, e.scale, e.uvOffset, e.uvScale, e.color, 0});
+  }
 
   // Player HP Bar
   if (player && state != GameState::GameOver) {
@@ -955,6 +1587,31 @@ void Game::Render() {
       DrawText(textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 85,
                "PIERCING! " + std::to_string((int)player->piercingTimer) + "s",
                {1, 0.3f, 1, 1}, 18);
+    // Dodge indicator
+    if (dodgeTimer >= dodgeCooldown)
+      DrawText(textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 108,
+               "DODGE READY", {0.3f, 1, 1, 1}, 16);
+    else
+      DrawText(textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 108,
+               "DODGE " +
+                   std::to_string((int)(dodgeCooldown - dodgeTimer) + 1) + "s",
+               {0.5f, 0.5f, 0.5f, 1}, 16);
+    // Wave / Mode display
+    if (endlessMode) {
+      DrawText(textData, cam.x + width / 2.0f - 180, cam.y - height / 2.0f + 10,
+               "ENDLESS", {1, 0.3f, 0.3f, 1}, 22);
+      // Show difficulty
+      DrawText(textData, cam.x + width / 2.0f - 180, cam.y - height / 2.0f + 35,
+               "DIFF:" + std::to_string((int)difficultyRating),
+               {1, 0.5f, 0.2f, 1}, 16);
+    } else {
+      std::string waveNames[] = {"SKELETONS", "SLIMES", "BIG SKELETONS",
+                                 "BIG SLIMES"};
+      std::string wn = (currentWave < 4) ? waveNames[currentWave] : "???";
+      DrawText(textData, cam.x + width / 2.0f - 200, cam.y - height / 2.0f + 10,
+               "WAVE " + std::to_string(currentWave + 1) + ": " + wn,
+               {0.8f, 0.6f, 1, 1}, 18);
+    }
     {
       // Check if boss is alive
       bool bossAlive = false;

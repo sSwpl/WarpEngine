@@ -15,6 +15,39 @@ bool AudioSystem::Init() {
 void AudioSystem::PlaySFX(SFXType type) {
   if (!initialized)
     return;
+
+  // Per-type cooldown in milliseconds
+  int cooldownMs = 0;
+  switch (type) {
+  case SFXType::Collect:
+    cooldownMs = 250;
+    break;
+  case SFXType::Hit:
+    cooldownMs = 200;
+    break;
+  case SFXType::Shoot:
+    cooldownMs = 150;
+    break;
+  default:
+    cooldownMs = 0; // LevelUp, Death — no throttle
+    break;
+  }
+
+  // Throttle check
+  if (cooldownMs > 0) {
+    auto now = Clock::now();
+    int key = static_cast<int>(type);
+    auto it = lastPlayTime.find(key);
+    if (it != lastPlayTime.end()) {
+      auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         now - it->second)
+                         .count();
+      if (elapsed < cooldownMs)
+        return; // Too soon, skip
+    }
+    lastPlayTime[key] = now;
+  }
+
   const char *path = nullptr;
   switch (type) {
   case SFXType::Shoot:
