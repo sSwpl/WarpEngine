@@ -1701,6 +1701,38 @@ void Game::Render() {
         {e.position, e.scale, e.uvOffset, e.uvScale, e.color, solid});
   }
 
+  // Player Weapon Sprite
+  if (player && state == GameState::Playing) {
+    glm::vec2 weaponUV;
+    glm::vec2 weaponScale;
+    if (currentWeapon == WeaponType::MachineGun) {
+      weaponUV = {0, 0.5f};
+      weaponScale = {40, 28};
+    } else if (currentWeapon == WeaponType::Sword) {
+      weaponUV = {0.25f, 0.5f};
+      weaponScale = {32, 48};
+    } else {
+      weaponUV = {0.5f, 0.5f};
+      weaponScale = {48, 28};
+    }
+    // Aim toward nearest enemy
+    glm::vec2 aimDir = {1, 0};
+    for (int ei = 1; ei < (int)entities.size(); ++ei) {
+      auto &en = entities[ei];
+      if (en.type == EntityType::Blob || en.type == EntityType::Skeleton ||
+          en.type == EntityType::SkeletonMage) {
+        glm::vec2 d = en.position - player->position;
+        if (glm::length(d) > 0.1f) {
+          aimDir = glm::normalize(d);
+          break;
+        }
+      }
+    }
+    glm::vec2 weaponPos = player->position + aimDir * 30.0f;
+    spriteData.push_back(
+        {weaponPos, weaponScale, weaponUV, {0.25f, 0.25f}, {1, 1, 1, 1}, 0});
+  }
+
   // Player HP Bar
   if (player && state != GameState::GameOver) {
     spriteData.push_back({player->position + glm::vec2(0, -50),
