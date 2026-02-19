@@ -245,6 +245,7 @@ private:
   float bulletDamage = 15.0f;
   int bulletPenetration = 1;
   WeaponType currentWeapon = WeaponType::MachineGun;
+  bool facingLeft = false;
 
   // Wave system (4 waves + endless)
   int currentWave = 0;

@@ -1694,43 +1694,65 @@ void Game::Render() {
   std::sort(renderOrder.begin(), renderOrder.end(), [this](int a, int b) {
     return GetRenderLayer(entities[a].type) < GetRenderLayer(entities[b].type);
   });
+
+  // Update facing direction based on nearest enemy (before rendering)
+  if (player && state == GameState::Playing) {
+    float nearestDist = 99999.0f;
+    for (int ei = 1; ei < (int)entities.size(); ++ei) {
+      auto &en = entities[ei];
+      if (en.type == EntityType::Blob || en.type == EntityType::Skeleton ||
+          en.type == EntityType::SkeletonMage) {
+        float d = glm::distance(en.position, player->position);
+        if (d < nearestDist) {
+          nearestDist = d;
+          facingLeft = (en.position.x < player->position.x);
+        }
+      }
+    }
+  }
+
   for (int idx : renderOrder) {
     const auto &e = entities[idx];
     float solid = (e.type == EntityType::Explosion) ? 1.0f : 0.0f;
+    glm::vec2 renderScale = e.scale;
+    // Flip player sprite when facing left
+    if (idx == 0 && facingLeft) {
+      renderScale.x = -renderScale.x;
+    }
     spriteData.push_back(
-        {e.position, e.scale, e.uvOffset, e.uvScale, e.color, solid});
+        {e.position, renderScale, e.uvOffset, e.uvScale, e.color, solid});
   }
 
   // Player Weapon Sprite
   if (player && state == GameState::Playing) {
     glm::vec2 weaponUV;
     glm::vec2 weaponScale;
+    glm::vec2 handOffset; // Offset from player center to hand position
     if (currentWeapon == WeaponType::MachineGun) {
       weaponUV = {0, 0.5f};
-      weaponScale = {40, 28};
+      weaponScale = {36, 24};
+      handOffset = {22, 2};
     } else if (currentWeapon == WeaponType::Sword) {
       weaponUV = {0.25f, 0.5f};
-      weaponScale = {32, 48};
-    } else {
+      weaponScale = {28, 44};
+      handOffset = {24, -6};
+    } else { // Bazooka
       weaponUV = {0.5f, 0.5f};
-      weaponScale = {48, 28};
+      weaponScale = {44, 24};
+      handOffset = {26, 2};
     }
-    // Aim toward nearest enemy
-    glm::vec2 aimDir = {1, 0};
-    for (int ei = 1; ei < (int)entities.size(); ++ei) {
-      auto &en = entities[ei];
-      if (en.type == EntityType::Blob || en.type == EntityType::Skeleton ||
-          en.type == EntityType::SkeletonMage) {
-        glm::vec2 d = en.position - player->position;
-        if (glm::length(d) > 0.1f) {
-          aimDir = glm::normalize(d);
-          break;
-        }
-      }
+
+    // Flip weapon to match facing
+    glm::vec2 offset = handOffset;
+    glm::vec2 scale = weaponScale;
+    if (facingLeft) {
+      offset.x = -offset.x;
+      scale.x = -scale.x; // Flip sprite horizontally
     }
-    glm::vec2 weaponPos = player->position + aimDir * 30.0f;
+
+    glm::vec2 weaponPos = player->position + offset;
     spriteData.push_back(
-        {weaponPos, weaponScale, weaponUV, {0.25f, 0.25f}, {1, 1, 1, 1}, 0});
+        {weaponPos, scale, weaponUV, {0.25f, 0.25f}, {1, 1, 1, 1}, 0});
   }
 
   // Player HP Bar
