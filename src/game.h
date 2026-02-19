@@ -31,7 +31,14 @@ enum class WeaponType { MachineGun, Sword, Bazooka };
 enum class GameState { WeaponSelect, Playing, LevelUp, GameOver };
 
 // Upgrade Types
-enum class UpgradeType { MaxHP, Damage, FireRate, Speed, Penetration };
+enum class UpgradeType {
+  MaxHP,
+  Damage,
+  FireRate,
+  Speed,
+  Penetration,
+  DashCooldown
+};
 
 struct Upgrade {
   UpgradeType type;
@@ -263,7 +270,7 @@ private:
   DifficultyOutput diffOut;      // Current frame's output multipliers
 
   // Dodge roll
-  float dodgeCooldown = 2.0f;
+  float dodgeCooldown = 3.0f;
   float dodgeTimer = 0.0f;
   bool dodging = false;
   float dodgeDuration = 0.15f;

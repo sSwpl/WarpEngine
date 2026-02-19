@@ -87,6 +87,31 @@ def draw_sword_slash(draw, x, y):
     draw.arc([x+2, y+2, x+62, y+62], start=200, end=340, fill=(255, 255, 255, 255), width=6)
     draw.arc([x+6, y+6, x+58, y+58], start=210, end=330, fill=(255, 255, 255, 200), width=4)
     draw.arc([x+10, y+10, x+54, y+54], start=220, end=320, fill=(255, 255, 255, 150), width=3)
+def draw_ground_tile_1(draw, x, y):
+    # Dark grass tile with subtle texture
+    draw.rectangle([x, y, x+63, y+63], fill=(25, 35, 20, 255))
+    # Grass blades / dots
+    import random
+    rng = random.Random(42)
+    for _ in range(12):
+        px, py = rng.randint(x+2, x+61), rng.randint(y+2, y+61)
+        c = rng.choice([(30, 45, 25, 255), (20, 30, 18, 255), (35, 50, 30, 255)])
+        draw.rectangle([px, py, px+2, py+2], fill=c)
+    # Subtle grid lines at edges
+    draw.line([x, y, x+63, y], fill=(22, 32, 18, 255), width=1)
+    draw.line([x, y, x, y+63], fill=(22, 32, 18, 255), width=1)
+
+def draw_ground_tile_2(draw, x, y):
+    # Slightly different ground variant
+    draw.rectangle([x, y, x+63, y+63], fill=(22, 30, 22, 255))
+    import random
+    rng = random.Random(99)
+    for _ in range(8):
+        px, py = rng.randint(x+4, x+59), rng.randint(y+4, y+59)
+        c = rng.choice([(28, 40, 22, 255), (18, 28, 16, 255)])
+        draw.ellipse([px, py, px+3, py+3], fill=c)
+    draw.line([x, y, x+63, y], fill=(20, 28, 18, 255), width=1)
+    draw.line([x, y, x, y+63], fill=(20, 28, 18, 255), width=1)
 
 draw = ImageDraw.Draw(atlas)
 
@@ -108,5 +133,10 @@ draw_sword(draw, 64, 128)        # (1, 2) - Sword icon
 draw_bazooka(draw, 128, 128)     # (2, 2) - Bazooka icon
 draw_sword_slash(draw, 192, 128) # (3, 2) - Sword slash arc
 
+# Row 4 (Ground tiles)
+draw_ground_tile_1(draw, 0, 192)   # (0, 3) - Dark grass
+draw_ground_tile_2(draw, 64, 192)  # (1, 3) - Grass variant
+
 atlas.save('assets/atlas.png')
 print("Generated assets/atlas.png (256x256)")
+

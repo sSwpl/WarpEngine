@@ -630,7 +630,7 @@ std::vector<Upgrade> Game::GenerateUpgradeOptions() {
       {UpgradeType::Damage, "+5 DAMAGE", {1, 0.3f, 0.3f, 1}},
       {UpgradeType::FireRate, "FAST FIRE", {1, 1, 0.3f, 1}},
       {UpgradeType::Speed, "+50 SPEED", {0.3f, 0.7f, 1, 1}},
-      {UpgradeType::Penetration, "+2 PIERCE", {0.8f, 0.3f, 1, 1}},
+      {UpgradeType::DashCooldown, "FASTER DASH", {0.3f, 1, 1, 1}},
   };
   std::random_device rd;
   std::mt19937 rng(rd());
@@ -667,6 +667,9 @@ void Game::ApplyUpgrade(int choice) {
     break;
   case UpgradeType::Penetration:
     bulletPenetration += 1;
+    break;
+  case UpgradeType::DashCooldown:
+    dodgeCooldown = std::max(0.5f, dodgeCooldown - 0.3f);
     break;
   }
   state = GameState::Playing;
@@ -1683,7 +1686,33 @@ void Game::Render() {
   static std::vector<InstanceData> spriteData, textData;
   spriteData.clear();
   textData.clear();
-  spriteData.reserve(entities.size() + 30);
+  spriteData.reserve(entities.size() + 200);
+
+  // --- Background ground tiles ---
+  if (player) {
+    const float TILE = 128.0f; // World-space tile size
+    // Calculate visible area
+    float halfW = (float)width / 2.0f + TILE;
+    float halfH = (float)height / 2.0f + TILE;
+    float camX = player->position.x;
+    float camY = player->position.y;
+    // Tile grid range
+    int startX = (int)std::floor((camX - halfW) / TILE);
+    int endX = (int)std::ceil((camX + halfW) / TILE);
+    int startY = (int)std::floor((camY - halfH) / TILE);
+    int endY = (int)std::ceil((camY + halfH) / TILE);
+    for (int ty = startY; ty <= endY; ++ty) {
+      for (int tx = startX; tx <= endX; ++tx) {
+        // Checkerboard pattern: alternate between two tile variants
+        bool variant = ((tx + ty) & 1) != 0;
+        glm::vec2 tileUV = variant ? glm::vec2(0.25f, 0.75f) // tile 2
+                                   : glm::vec2(0.0f, 0.75f); // tile 1
+        glm::vec2 pos = {tx * TILE + TILE * 0.5f, ty * TILE + TILE * 0.5f};
+        spriteData.push_back(
+            {pos, {TILE, TILE}, tileUV, {0.25f, 0.25f}, {1, 1, 1, 1}, 0});
+      }
+    }
+  }
 
   // Sort entities by render layer: corpses < crystals/gems < enemies < bullets
   // < player
@@ -1845,28 +1874,23 @@ void Game::Render() {
                  std::to_string((int)player->maxHp),
              {0.3f, 1, 0.3f, 1}, 18);
     if (player->piercingTimer > 0) {
-      std::string pwrName = "PIERCING!";
-      glm::vec4 pwrColor = {1, 0.3f, 1, 1};
-      if (currentWeapon == WeaponType::Sword) {
-        pwrName = "WHIRLWIND!";
-        pwrColor = {0.5f, 0.8f, 1, 1};
-      } else if (currentWeapon == WeaponType::Bazooka) {
-        pwrName = "VOLLEY!";
-        pwrColor = {1, 0.5f, 0.2f, 1};
-      }
       DrawText(textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 85,
-               pwrName + " " + std::to_string((int)player->piercingTimer) + "s",
-               pwrColor, 18);
+               "POWER UP! " + std::to_string((int)player->piercingTimer) + "s",
+               {0.8f, 0.3f, 1, 1}, 18);
     }
     // Dodge indicator
     if (dodgeTimer >= dodgeCooldown)
       DrawText(textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 108,
                "DODGE READY", {0.3f, 1, 1, 1}, 16);
     else
-      DrawText(textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 108,
-               "DODGE " +
-                   std::to_string((int)(dodgeCooldown - dodgeTimer) + 1) + "s",
-               {0.5f, 0.5f, 0.5f, 1}, 16);
+      DrawText(
+          textData, cam.x - width / 2.0f + 10, cam.y - height / 2.0f + 108,
+          [&] {
+            char b[16];
+            snprintf(b, sizeof(b), "DODGE %.1fs", dodgeCooldown - dodgeTimer);
+            return std::string(b);
+          }(),
+          {0.5f, 0.5f, 0.5f, 1}, 16);
     // Wave / Mode display
     if (endlessMode) {
       DrawText(textData, cam.x + width / 2.0f - 180, cam.y - height / 2.0f + 10,
