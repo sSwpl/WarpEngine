@@ -38,3 +38,6 @@ compile_commands.json
 # External dependencies (if downloaded via scripts)
 external/wgpu/
 external/glfw/
+
+# agent workflow
+.agent/
